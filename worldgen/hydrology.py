@@ -116,10 +116,17 @@ def river_paths(discharge, receiver, river, stop, width, smooth=2):
     valid = r >= 0
     np.add.at(donors, r[valid], 1)
 
+    # Lake pixels that drain into a river pixel: the river leaves the lake there.
+    outlet_of = np.full(h * w, -1, dtype=np.int64)
+    water = np.flatnonzero(st & (receiver >= 0))
+    leaving = water[rv[receiver[water]]]
+    outlet_of[receiver[leaving]] = leaving
+
     starts = idx[(donors[idx] != 1)]  # river heads and confluences
     paths = []
     for s in starts.tolist():
-        pts = [s]
+        from_lake = donors[s] == 0 and outlet_of[s] >= 0
+        pts = [int(outlet_of[s]), s] if from_lake else [s]
         cur = s
         while True:
             nxt = int(receiver[cur])
@@ -138,6 +145,15 @@ def river_paths(discharge, receiver, river, stop, width, smooth=2):
         xs = np.concatenate([[xs[0]], xs[0] + np.cumsum(steps)])
         ys = ys.astype(float)
         flows = q[pts].astype(float)
+        # Meet the water exactly at the shoreline: the edge between the last land pixel
+        # and the lake or sea (instead of running on to the water pixel's centre), and
+        # likewise start lake outlets at the lake's edge.
+        if st[pts[-1]]:
+            xs[-1], ys[-1] = (xs[-1] + xs[-2]) / 2, (ys[-1] + ys[-2]) / 2
+            flows[-1] = flows[-2]
+        if from_lake and len(pts) > 2:
+            xs[0], ys[0] = (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2
+            flows[0] = flows[1]
         xs, ys, flows = _chaikin(xs, ys, flows, smooth)
         paths.append((xs, ys, flows))
     return paths

@@ -17,8 +17,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import label, maximum_filter
 
-import hydrology
-from worldgen import (BIOME_ID, Grid, Terrain, World, _apply_archipelagos, _climate,
+from . import hydrology
+from .generator import (BIOME_ID, Grid, Terrain, World, _apply_archipelagos, _climate,
                       _piece_map, _plate_boundaries, _rivers, _synthesize, _to_metres,
                       detail_octaves, fill_pockets)
 
@@ -54,6 +54,17 @@ def box_for_view(world: World, col_start: float, col_end: float, row_start: floa
     if factor is None or cols >= w:
         return None
     return RegionBox(r0, c0 % w, rows, cols, factor)
+
+
+def region_box(world: World, north: float, south: float, west: float, east: float):
+    """The region box covering a latitude/longitude rectangle (degrees; east of 180 wraps,
+    and west > east means the box crosses the date line). Returns None if it's too large:
+    a region can be at most MAX_REGION_PX / 2 world-map cells across."""
+    g = world.grid
+    if east < west:
+        east += 360
+    return box_for_view(world, (west + 180) / g.dpp - 0.5, (east + 180) / g.dpp - 0.5,
+                        (90 - north) / g.dpp - 0.5, (90 - south) / g.dpp - 0.5)
 
 
 def generate_region(world: World, box: RegionBox) -> World:

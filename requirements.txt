@@ -1,3 +1,2 @@
-numpy
-scipy
-matplotlib
+# Install the generator and its dependencies (same as: pip install -e .)
+-e .

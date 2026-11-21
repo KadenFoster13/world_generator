@@ -2,7 +2,7 @@
 import numpy as np
 from matplotlib import colormaps
 
-from worldgen import BIOMES, BIOME_ID, World, blur
+from .generator import BIOMES, BIOME_ID, World, blur
 
 LAYERS = ["Biomes", "Elevation", "Plates", "Temperature", "Precipitation"]
 _BIOME_RGB = np.array([c for _, c in BIOMES])
@@ -89,7 +89,7 @@ def _river_network(world: World):
     """All river segments down to the smallest stream shown when zoomed in (cached per world)."""
     cache = getattr(world, "_river_network", None)
     if cache is None:
-        import hydrology
+        from . import hydrology
 
         detail = world.stream & (world.discharge_m3s >= world.cfg.river_detail_min_m3s)
         # Region pixels are already fine, so one smoothing pass is enough (and draws faster).

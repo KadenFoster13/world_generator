@@ -11,9 +11,9 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter, label, maximum_filter
 
-import hydrology
-from config import WorldConfig
-from noise import Perlin3, SphereXYZ, fbm, ridged
+from . import hydrology
+from .config import WorldConfig
+from .noise import Perlin3, SphereXYZ, fbm, ridged
 
 
 # --------------------------------------------------------------------- biomes
