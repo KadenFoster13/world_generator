@@ -17,6 +17,7 @@ Controls
   Options on the right turn features on/off (archipelagos, lakes, rivers); add more in config.py
   Favourite (or F) stars the current seed; Favourites > (or G) jumps through starred seeds
     (kept in ~/.worldgen_favourites.json)
+  Dark / Light (or D) switches the window between dark and light mode (remembered)
   Press S to save the current map as a PNG in renders/
   Press X to export the world's data (and any enhanced region) as .npz files in renders/
   Hover over the map to read the values under the cursor (bottom-right of the window)
@@ -34,7 +35,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.widgets import Button, CheckButtons, RadioButtons, Slider, TextBox
 
-from .config import CLIMATE_SLIDERS, DEFAULT, RESOLUTIONS, TERRAIN_SLIDERS, TOGGLES
+from .config import CLIMATE_SLIDERS, DARK_MODE, DEFAULT, RESOLUTIONS, TERRAIN_SLIDERS, TOGGLES
 from .export import save_world
 from .render import (GLOBE_BACKGROUND, LAYERS, RIVER_COLOUR, RIVER_LAYERS, globe_rivers, globe_view,
                      render, river_segments, save_map)
@@ -55,8 +56,15 @@ MAP_H = MAP_W / 2
 MAX_ZOOM = 32
 ZOOM_STEP = 1.35
 TICK_STEPS = [60, 30, 20, 10, 5, 2, 1, 0.5, 0.25]   # degrees between grid labels
-ACTIVE_COLOUR, IDLE_COLOUR = "#9cc3e6", "0.85"
 FAVOURITES_FILE = os.path.join(os.path.expanduser("~"), ".worldgen_favourites.json")
+PREFERENCES_FILE = os.path.join(os.path.expanduser("~"), ".worldgen_viewer.json")
+# Window colours: background, text, buttons, buttons under the mouse, highlighted buttons, lines.
+THEMES = {
+    "light": {"bg": "white", "fg": "black", "button": "0.85", "hover": "0.95",
+              "active": "#9cc3e6", "edge": "0.25"},
+    "dark": {"bg": "#1d1f23", "fg": "#e4e6ea", "button": "#363a41", "hover": "#474c55",
+             "active": "#2e6596", "edge": "#9aa0a8"},
+}
 SMOOTH_FROM_ZOOM = 3     # blend map pixels when zoomed in at least this far
 GLOBE_PX = 600           # height of the globe picture (it's twice as wide, like the map area)
 GLOBE_MAX_ZOOM = 8
@@ -80,6 +88,7 @@ class Viewer:
         self.globe_image = None
         self.region_image = None
         self._cache = {}         # rendered layers: (id(world), layer) -> image
+        self.dark = bool(_load_preferences().get("dark", DARK_MODE))
 
         # Figure height grows only if sliders are configured.
         rows = max(len(TERRAIN_SLIDERS), len(CLIMATE_SLIDERS))
@@ -109,6 +118,7 @@ class Viewer:
         c.mpl_connect("scroll_event", self._on_scroll)
         c.mpl_connect("resize_event", self._on_resize)
         self._capture_text_sizes()
+        self.apply_theme()
 
         self.regenerate("terrain")
 
@@ -139,7 +149,7 @@ class Viewer:
             b.on_clicked(lambda _, wd=width: self.set_resolution(wd))
             self.res_buttons[width] = b
         self._highlight_resolution()
-        self.btn_enhance = Button(self._axes(9.95, y, 0.95, bh), "Enhance", color=ACTIVE_COLOUR)
+        self.btn_enhance = Button(self._axes(9.95, y, 0.95, bh), "Enhance")
         self.btn_clear = Button(self._axes(11.0, y, 0.7, bh), "Clear")
         self.btn_enhance.on_clicked(lambda _: self.enhance())
         self.btn_clear.on_clicked(lambda _: self.clear_region())
@@ -174,6 +184,8 @@ class Viewer:
     def _build_side_panel(self):
         x = 12.2
         top = self.map_y + MAP_H
+        self.btn_theme = Button(self._axes(13.75, top + 0.06, 1.0, 0.28), "Light" if self.dark else "Dark")
+        self.btn_theme.on_clicked(lambda _: self.toggle_dark())
         legend_ax = self._axes(x - 0.1, top - 1.75, 2.8, 1.75)
         legend_ax.set_axis_off()
         handles = [Patch(color=c, label=n) for n, c in BIOMES]
@@ -202,10 +214,53 @@ class Viewer:
             self.checks.on_clicked(self._on_toggle)
 
     def _highlight_resolution(self):
+        t = self.theme
         for width, b in self.res_buttons.items():
-            colour = ACTIVE_COLOUR if width == self.cfg.width else IDLE_COLOUR
+            colour = t["active"] if width == self.cfg.width else t["button"]
             b.color = colour
             b.ax.set_facecolor(colour)
+
+    # ------------------------------------------------------------- theme
+    @property
+    def theme(self):
+        return THEMES["dark" if self.dark else "light"]
+
+    def toggle_dark(self):
+        self.dark = not self.dark
+        self.btn_theme.label.set_text("Light" if self.dark else "Dark")
+        _save_preferences({**_load_preferences(), "dark": self.dark})
+        self.apply_theme()
+        if self.world is not None:
+            self.redraw()
+
+    def apply_theme(self):
+        """Colour the window, text and controls for light or dark mode (the map itself is unchanged)."""
+        from matplotlib.text import Text
+
+        t = self.theme
+        self.fig.patch.set_facecolor(t["bg"])
+        for text in self.fig.findobj(Text):
+            text.set_color(t["fg"])
+        for ax in self.fig.axes:
+            ax.set_facecolor(t["bg"])
+            ax.tick_params(colors=t["fg"])
+            for spine in ax.spines.values():
+                spine.set_edgecolor(t["edge"])
+        for widget in vars(self).values():
+            if isinstance(widget, (Button, TextBox)):
+                widget.color, widget.hovercolor = t["button"], t["hover"]
+                widget.ax.set_facecolor(t["button"])
+        self.btn_enhance.color = t["active"]
+        self.btn_enhance.ax.set_facecolor(t["active"])
+        self._highlight_resolution()
+        if hasattr(self, "radio"):
+            self.radio.set_radio_props({"edgecolor": t["fg"], "facecolor": t["fg"]})
+        if hasattr(self, "checks"):
+            self.checks.set_frame_props({"edgecolor": t["fg"]})
+            self.checks.set_check_props({"facecolor": t["fg"]})
+        for s in self.sliders.values():
+            s.ax.set_facecolor(t["button"])
+        self.fig.canvas.draw_idle()
 
     # ---------------------------------------------------------- generation
     def regenerate(self, stage):
@@ -259,7 +314,7 @@ class Viewer:
             self.image.set_data(img)
         self.image.set_visible(True)
         self.ax.set_axis_on()
-        self.ax.set_facecolor("white")
+        self.ax.set_facecolor(self.theme["bg"])
         self._apply_view()
 
     def _draw_globe(self):
@@ -688,6 +743,8 @@ class Viewer:
             self.enhance()
         elif event.key in ("f", "F"):
             self.toggle_favourite()
+        elif event.key in ("d", "D"):
+            self.toggle_dark()
         elif event.key in ("g", "G"):
             self.next_favourite()
         elif event.key in ("c", "C"):
@@ -792,6 +849,23 @@ def _save_favourites(favourites):
             json.dump(favourites, f, indent=1)
     except OSError as e:
         print(f"couldn't save favourites: {e}")
+
+
+def _load_preferences():
+    try:
+        with open(PREFERENCES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_preferences(prefs):
+    try:
+        with open(PREFERENCES_FILE, "w", encoding="utf-8") as f:
+            json.dump(prefs, f, indent=1)
+    except OSError as e:
+        print(f"couldn't save viewer preferences: {e}")
 
 
 def _changed_settings(cfg):

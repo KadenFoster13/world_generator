@@ -108,6 +108,10 @@ DEFAULT = WorldConfig()
 
 
 # ------------------------------------------------------------------ viewer controls
+# Start the viewer in dark mode (the Dark/Light button or D switches; your last choice is
+# remembered in ~/.worldgen_viewer.json and wins over this).
+DARK_MODE = False
+
 # Map widths offered in the viewer. Roughly: 800 ~2 s per seed, 1600 ~9 s, 2400 ~30 s.
 RESOLUTIONS = [800, 1600, 2400]
 

@@ -66,6 +66,7 @@ python -m worldgen --seed 42 --width 1600
 | `X` | Export the world's data (and any enhanced region) as `.npz` in `renders/` |
 | Hover | Read position, biome, elevation, temperatures, rainfall, growing season, farmland, harbour, movement and rivers |
 | Favourite, `F` / Favourites >, `G` | Star the current seed / jump through starred seeds (saved in `~/.worldgen_favourites.json`) |
+| Dark / Light, `D` | Switch the window to dark or light mode (remembered in `~/.worldgen_viewer.json`; starting default `DARK_MODE` in `config.py`) |
 
 ## Using it from code
 

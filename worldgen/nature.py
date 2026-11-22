@@ -131,6 +131,12 @@ def species_native(world, suitability):
     lm, area = world.landmass_id, world.landmass_area
     out = np.zeros(suitability.shape, bool)
     coarse = _CoarseGrid(world)
+    # Ragged, patchy edges: how far each species gets, and how poor a habitat it will put
+    # up with, both vary from place to place. One shared pair of noise maps, shifted
+    # east-west by a different amount for each species, is plenty.
+    edge_seed = world.cfg.seed * 7919 + 515151
+    edge_noise = (fbm(Perlin3(edge_seed + 2), world.grid.xyz, 10, 3),
+                  fbm(Perlin3(edge_seed + 3), world.grid.xyz, 16, 2))
     for i, sp in enumerate(SPECIES):
         sp_rng = np.random.default_rng(rng.integers(2 ** 63))   # fixed draws per species
         suit = suitability[i]
@@ -155,12 +161,6 @@ def species_native(world, suitability):
             continue
         noise_seed = world.cfg.seed * 7919 + 515151 + i * 104729
         effort = coarse.spread(homes, suit, noise_seed=noise_seed, reach_km=sp.reach_km * RANGE_EFFORT)
-        # Ragged, patchy edges: how far the species gets, and how poor a habitat it will
-        # put up with, both vary from place to place. (One shared pair of noise maps,
-        # shifted east-west by a different amount for each species, is plenty.)
-        if i == 0:
-            xyz = world.grid.xyz
-            edge_noise = (fbm(Perlin3(noise_seed + 2), xyz, 10, 3), fbm(Perlin3(noise_seed + 3), xyz, 16, 2))
         offset = int(sp_rng.integers(lm.shape[1]))
         budget = sp.reach_km * RANGE_EFFORT * (1 + 0.4 * np.roll(edge_noise[0], offset, axis=1))
         tolerance = 0.35 + 0.15 * np.roll(edge_noise[1], -offset, axis=1)
