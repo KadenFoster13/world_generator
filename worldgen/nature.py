@@ -1,0 +1,274 @@
+"""Wild species, minerals, disease and seas: the natural world a history unfolds on.
+
+- Wild crops and animals that can be domesticated, each with a climate niche and a
+  native homeland. Oceans, mountains and distance stop them spreading, so not every
+  landmass has every species (as with horses, missing from the Americas).
+- Mineral deposits (copper, tin, iron, gold, silver, coal, oil, saltpeter) from the
+  geology that forms them.
+- Disease environments (malaria, tsetse fly).
+- Prevailing winds and ocean currents for sailing, and the land exposed when sea level
+  was lower during the ice age.
+
+Everything here is deterministic from the world seed and doesn't change the terrain.
+"""
+from dataclasses import dataclass
+
+import numpy as np
+
+from .generator import BIOME_ID, blur, distance_to, smoothstep
+from .noise import Perlin3, fbm
+
+
+# ------------------------------------------------------------------ species
+@dataclass(frozen=True)
+class Species:
+    key: str
+    label: str
+    kind: str                 # "crop" or "animal"
+    temp: tuple               # comfortable mean annual temperature range, C
+    temp_tolerance: float     # how far outside that range it can still survive, C
+    precip: tuple             # comfortable annual rainfall range, mm
+    min_growing: float = 0    # months of growing season needed (crops)
+    elevation: tuple = (-100, 3500)  # m
+    needs_water: bool = False # needs rivers, lakes or wetland nearby (rice, dates)
+    biomes: tuple = ()        # biomes it lives in (empty = any land biome)
+    difficulty: float = 1.0   # how hard to domesticate (1 = easy, 3 = very slow)
+    chance: float = 0.6       # chance a large landmass has it at all
+    homelands: tuple = (1, 2) # number of native homeland areas on a landmass that has it
+    reach_km: float = 1500    # how far its wild range spreads from a homeland
+    uses: tuple = ()
+    food: float = 1.0         # relative food value once domesticated
+
+
+_OPEN = ("Grassland", "Savanna", "Scrubland", "Temperate forest", "Tropical dry forest")
+SPECIES = (
+    # Crops
+    Species("temperate_grain", "wild grain (wheat/barley-like)", "crop", (8, 20), 6, (250, 900), 4,
+            difficulty=1.0, chance=0.55, uses=("food", "fodder"), food=1.0),
+    Species("cold_grain", "hardy grain (rye/oat-like)", "crop", (2, 12), 5, (300, 1000), 3,
+            difficulty=1.4, chance=0.5, uses=("food", "fodder"), food=0.8),
+    Species("wet_grain", "wetland grain (rice-like)", "crop", (18, 29), 4, (1000, 3000), 6,
+            elevation=(-100, 1500), needs_water=True, difficulty=1.2, chance=0.45, uses=("food",), food=1.2),
+    Species("tropical_grain", "dry grain (millet/sorghum-like)", "crop", (18, 30), 5, (300, 1200), 4,
+            difficulty=1.1, chance=0.55, uses=("food", "fodder"), food=0.8),
+    Species("slow_grain", "big grain, slow to tame (maize-like)", "crop", (14, 28), 6, (500, 1600), 4,
+            difficulty=3.0, chance=0.35, homelands=(1, 1), uses=("food", "fodder"), food=1.3),
+    Species("legume", "pulses (bean/lentil-like)", "crop", (6, 28), 6, (300, 1300), 3,
+            difficulty=1.0, chance=0.65, uses=("food",), food=0.7),
+    Species("highland_tuber", "highland tuber (potato-like)", "crop", (4, 14), 5, (400, 1200), 3,
+            elevation=(1000, 4200), difficulty=1.3, chance=0.35, homelands=(1, 1), uses=("food",), food=1.1),
+    Species("tropical_tuber", "tropical root crop (yam/taro-like)", "crop", (20, 30), 4, (1200, 3500), 6,
+            elevation=(-100, 1800), difficulty=1.2, chance=0.55, uses=("food",), food=1.0),
+    Species("tree_crop", "fruit and oil trees (olive/date/banana-like)", "crop", (12, 30), 5, (200, 2500), 4,
+            difficulty=1.5, chance=0.6, uses=("food", "oil"), food=0.6),
+    Species("fibre", "fibre plant (flax/cotton-like)", "crop", (10, 30), 6, (400, 1600), 4,
+            difficulty=1.2, chance=0.55, uses=("fibre",), food=0.0),
+    # Animals
+    Species("cattle", "wild cattle", "animal", (2, 26), 8, (300, 1800), 0,
+            biomes=_OPEN + ("Boreal forest", "Wetland"), difficulty=1.5, chance=0.5,
+            reach_km=2500, uses=("meat", "milk", "traction", "leather"), food=1.0),
+    Species("sheep_goat", "wild sheep and goats", "animal", (-2, 25), 8, (150, 1200), 0,
+            biomes=_OPEN + ("Alpine", "Desert"), elevation=(-100, 4500), difficulty=1.0, chance=0.55,
+            reach_km=2500, uses=("meat", "milk", "wool"), food=0.8),
+    Species("pig", "wild pig", "animal", (2, 28), 6, (500, 2500), 0,
+            biomes=("Temperate forest", "Tropical dry forest", "Tropical rainforest", "Wetland", "Savanna"),
+            difficulty=1.0, chance=0.6, reach_km=2500, uses=("meat",), food=0.9),
+    Species("horse", "wild horse", "animal", (-4, 18), 6, (200, 900), 0,
+            biomes=("Grassland", "Scrubland", "Tundra", "Boreal forest"), difficulty=2.0, chance=0.3,
+            homelands=(1, 1), reach_km=3000, uses=("riding", "traction", "war", "milk"), food=0.5),
+    Species("camel", "wild camel", "animal", (10, 30), 8, (20, 400), 0,
+            biomes=("Desert", "Scrubland", "Grassland"), difficulty=2.0, chance=0.3,
+            homelands=(1, 1), reach_km=2500, uses=("pack", "riding", "milk", "war"), food=0.4),
+    Species("llama", "wild highland camelid (llama-like)", "animal", (-4, 14), 6, (200, 1200), 0,
+            biomes=("Alpine", "Grassland", "Scrubland", "Tundra"), elevation=(1500, 5000), difficulty=1.5,
+            chance=0.3, homelands=(1, 1), reach_km=2000, uses=("pack", "wool", "meat"), food=0.4),
+    Species("fowl", "wild fowl (chicken-like)", "animal", (16, 30), 5, (800, 3000), 0,
+            biomes=("Tropical dry forest", "Tropical rainforest", "Savanna", "Temperate forest"),
+            difficulty=0.8, chance=0.5, reach_km=2000, uses=("meat", "eggs"), food=0.4),
+)
+SPECIES_KEYS = tuple(s.key for s in SPECIES)
+
+
+def _band(value, lo, hi, tolerance):
+    """1 inside [lo, hi], falling to 0 at `tolerance` outside it."""
+    below = np.clip((lo - value) / tolerance, 0, None)
+    above = np.clip((value - hi) / tolerance, 0, None)
+    return np.clip(1 - below - above, 0, 1)
+
+
+def species_suitability(world):
+    """How well each species could live in each cell (0..1), stacked (species, rows, cols)."""
+    land = ~world.ocean & ~world.lake
+    frozen = np.isin(world.biome, [BIOME_ID["Ice sheet"], BIOME_ID["Glacier"], BIOME_ID["Salt flat"]])
+    usable = land & ~frozen
+    log_p = np.log(np.maximum(world.precip_mm, 1))
+    out = np.zeros((len(SPECIES),) + world.ocean.shape, np.float32)
+    for i, sp in enumerate(SPECIES):
+        s = _band(world.temperature_c, sp.temp[0], sp.temp[1], sp.temp_tolerance)
+        s *= _band(log_p, np.log(sp.precip[0]), np.log(sp.precip[1]), 0.6)
+        s *= _band(world.elevation_m, sp.elevation[0], sp.elevation[1], 400)
+        if sp.min_growing:
+            s *= np.clip((world.growing_months - sp.min_growing + 1) / 2, 0, 1)
+        if sp.needs_water:
+            s *= np.clip(np.maximum(world.fresh_water, world.wetland) / 0.6, 0, 1)
+        if sp.biomes:
+            s *= np.isin(world.biome, [BIOME_ID[b] for b in sp.biomes])
+        out[i] = np.where(usable, s, 0)
+    return out
+
+
+def species_native(world, suitability):
+    """Where each species lives wild at the start of history (species, rows, cols) bool.
+
+    Each landmass independently may or may not have a species (smaller landmasses less
+    often); if it does, the species lives within `reach_km` of one or two homelands.
+    """
+    rng = np.random.default_rng((world.cfg.seed, 777))
+    lm, area = world.landmass_id, world.landmass_area
+    kpp = world.grid.km_per_px
+    out = np.zeros(suitability.shape, bool)
+    for i, sp in enumerate(SPECIES):
+        sp_rng = np.random.default_rng(rng.integers(2 ** 63))   # fixed draws per species
+        suit = suitability[i]
+        homes = np.zeros(lm.shape, bool)
+        for land_id in np.argsort(-area)[:40]:                   # the 40 largest landmasses
+            a = area[land_id]
+            roll = sp_rng.random()
+            n_homes = int(sp_rng.integers(sp.homelands[0], sp.homelands[1] + 1))
+            picks = sp_rng.random(n_homes)
+            if land_id == 0 or a < 0.0004:
+                continue
+            if roll > sp.chance * np.clip(np.sqrt(a / 0.01), 0.25, 1.0):
+                continue
+            cells = np.flatnonzero((lm == land_id).ravel() & (suit.ravel() >= 0.6))
+            if len(cells) == 0:
+                continue
+            weights = suit.ravel()[cells] / suit.ravel()[cells].sum()
+            cumulative = np.cumsum(weights)
+            for p in picks:
+                homes.ravel()[cells[min(np.searchsorted(cumulative, p), len(cells) - 1)]] = True
+        if not homes.any():
+            continue
+        dist, iy, ix = distance_to(homes)
+        same_land = lm[iy, ix] == lm
+        out[i] = (dist * kpp <= sp.reach_km) & same_land & (suit >= 0.35)
+    return out
+
+
+# ----------------------------------------------------------------- minerals
+MINERALS = ("copper", "tin", "iron", "gold", "silver", "coal", "oil", "saltpeter")
+
+
+def mineral_fields(cfg, grid, env, elevation_m, ocean, lake, precip, temperature, wetland):
+    """Mineral richness per cell (0..1) from the geology that forms each mineral."""
+    noise = [Perlin3(cfg.seed * 7919 + 424242 + k * 104729) for k in range(len(MINERALS))]
+    xyz = grid.xyz
+    land = ~ocean & ~lake
+    landness, ore, volcanic = env["landness"], env["ore"], env["volcanic"]
+    belts = np.clip(env["collision"] / max(float(np.max(env["collision"])), 1e-6), 0, 1)
+    lowland = smoothstep(2000, 600, np.maximum(elevation_m, 0))
+    shelf = ocean & (elevation_m > -300)
+    kpp = grid.km_per_px
+    foreland = np.clip(blur(belts * landness, 300 / kpp, grid.wraps) * 3, 0, 1)  # basins beside mountains
+    arid = np.clip((450 - precip) / 350, 0, 1)
+
+    def patches(k, freq, lo, hi):
+        return smoothstep(lo, hi, fbm(noise[k], xyz, freq, 4))
+
+    geology = {
+        "copper": np.clip(belts + 0.6 * volcanic + 0.4 * ore, 0, 1),
+        "tin": ore * landness,
+        "iron": np.clip(0.3 * landness + 0.4 * ore + 0.3 * wetland, 0, 1),
+        "gold": np.clip(0.7 * ore + 0.5 * volcanic, 0, 1),
+        "silver": np.clip(0.6 * ore + 0.5 * volcanic, 0, 1),
+        "coal": landness * lowland * np.clip(0.4 + foreland, 0, 1) * (0.5 + 0.5 * np.clip(precip / 1500, 0, 1)),
+        "oil": np.clip(landness * lowland * (0.4 + foreland) + 0.8 * shelf, 0, 1),
+        "saltpeter": arid * smoothstep(5, 15, temperature),
+    }
+    rarity = {  # (patch size frequency, threshold low, high): higher thresholds = rarer
+        "copper": (6, 0.05, 0.45), "tin": (4, 0.45, 0.75), "iron": (5, -0.1, 0.35),
+        "gold": (8, 0.35, 0.7), "silver": (8, 0.4, 0.75), "coal": (2.5, 0.15, 0.5),
+        "oil": (2.5, 0.4, 0.7), "saltpeter": (6, -0.05, 0.4),
+    }
+    out = {}
+    for k, name in enumerate(MINERALS):
+        freq, lo, hi = rarity[name]
+        value = geology[name] * patches(k, freq, lo, hi)
+        allowed = land | (shelf if name == "oil" else np.zeros_like(land))
+        out[name] = np.where(allowed, np.clip(value, 0, 1), 0.0).astype(np.float32)
+    return out
+
+
+# ------------------------------------------------------------------ disease
+def disease_fields(elevation_m, ocean, lake, temperature, precip, wetland, warmest):
+    """Disease environments (0..1) on land."""
+    land = ~ocean & ~lake
+    low = 1 - smoothstep(1200, 2000, elevation_m)
+    malaria = (smoothstep(16, 24, warmest) * smoothstep(500, 1400, precip) * low
+               * (0.6 + 0.4 * np.clip(wetland * 2, 0, 1)))
+    # Tsetse flies need hot, seasonally wet woodland-savanna (deadly to cattle and horses).
+    tsetse = (smoothstep(22, 25, temperature) * smoothstep(600, 900, precip)
+              * (1 - smoothstep(1300, 1800, precip)) * (1 - smoothstep(1000, 1500, elevation_m)))
+    return {"malaria": np.where(land, malaria, 0.0).astype(np.float32),
+            "tsetse": np.where(land, tsetse, 0.0).astype(np.float32)}
+
+
+# --------------------------------------------------------------------- seas
+def sea_fields(world):
+    """Prevailing winds and surface currents over the sea (m/s, east and north parts).
+
+    Trade winds blow toward the west in the tropics (with calm doldrums at the equator),
+    westerlies blow east in mid-latitudes, polar easterlies near the poles. Currents
+    circle each ocean: west along the equator, east in the mid-latitudes, toward the
+    poles along east coasts of continents and toward the equator along west coasts.
+    """
+    from .generator import _row_distance_to_land
+
+    lat = world.grid.lat
+    alat = np.abs(lat)
+    sign = np.sign(lat)
+    ocean = world.ocean
+    # Winds: speed by latitude band; direction east (+) / west (-) plus a little toward the equator in the trades.
+    east = np.interp(alat, [0, 5, 15, 28, 33, 45, 60, 65, 80, 90], [-2, -4, -7, -3, 2, 10, 8, -2, -5, -4])
+    north = np.where(alat < 30, -sign * 2.0, np.where(alat < 60, sign * 1.0, -sign * 1.5))
+    # Currents: zonal pattern plus boundary currents along coasts.
+    px_km = world.grid.km_per_px * np.maximum(np.cos(np.radians(lat[:, 0])), 0.05)
+    land_east = np.exp(-_row_distance_to_land(ocean, px_km, True) / 1000)
+    land_west = np.exp(-_row_distance_to_land(ocean, px_km, False) / 1000)
+    c_east = np.interp(alat, [0, 15, 25, 40, 50, 65, 90], [-0.5, -0.4, -0.1, 0.3, 0.3, 0.1, 0.0])
+    poleward = np.where(alat < 45, land_west - land_east, land_east - land_west)
+    c_north = sign * 0.5 * poleward
+    zero = np.zeros_like(lat)
+    return {name: np.where(ocean, value, zero).astype(np.float32)
+            for name, value in (("wind_east", east), ("wind_north", north),
+                                ("current_east", c_east), ("current_north", c_north))}
+
+
+def glacial_fields(world, sea_drop_m):
+    """Land exposed and land under ice at the height of the last ice age."""
+    exposed = world.ocean & (world.elevation_m > -sea_drop_m)
+    land_then = ~world.ocean | exposed
+    ice = land_then & (world.temperature_c - 6 < -6)
+    return {"glacial_land": exposed, "glacial_ice": ice}
+
+
+# ------------------------------------------------------------------ hooks
+def add_cell_nature(world, env):
+    """Per-cell facts that can be worked out from a world or region on its own."""
+    cfg, grid = world.cfg, world.grid
+    world.species_suitability = species_suitability(world)
+    for name, value in mineral_fields(cfg, grid, env, world.elevation_m, world.ocean, world.lake,
+                                      world.precip_mm, world.temperature_c, world.wetland).items():
+        setattr(world, name, value)
+    for name, value in disease_fields(world.elevation_m, world.ocean, world.lake, world.temperature_c,
+                                      world.precip_mm, world.wetland, world.warmest_month_c).items():
+        setattr(world, name, value)
+
+
+def add_global_nature(world):
+    """Facts that need the whole globe (landmasses, ocean basins); regions copy them."""
+    world.species_native = species_native(world, world.species_suitability)
+    for name, value in sea_fields(world).items():
+        setattr(world, name, value)
+    for name, value in glacial_fields(world, world.cfg.glacial_sea_drop_m).items():
+        setattr(world, name, value)

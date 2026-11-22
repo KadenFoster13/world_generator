@@ -23,10 +23,12 @@ from .export import (FIELDS, load_or_generate, load_world_cache, load_world_data
                      save_world_cache)
 from .generator import (BIOME_ID, BIOMES, DATA_VERSION, World, apply_climate, generate_terrain,
                         generate_world)
+from .climate_history import ClimateHistory, ClimateState, sea_level_m
 from .hydrology import cell_river_flow, edge_properties, river_depth_m, river_width_m
+from .nature import MINERALS, SPECIES, SPECIES_KEYS
 from .region import RegionBox, box_for_view, generate_region, region_box
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 __all__ = [
     "DEFAULT", "RESOLUTIONS", "WorldConfig",
@@ -34,4 +36,5 @@ __all__ = [
     "RegionBox", "region_box", "box_for_view", "generate_region",
     "save_world", "load_world_data", "save_world_cache", "load_world_cache", "load_or_generate",
     "FIELDS", "DATA_VERSION", "edge_properties", "cell_river_flow", "river_width_m", "river_depth_m",
+    "ClimateHistory", "ClimateState", "sea_level_m", "SPECIES", "SPECIES_KEYS", "MINERALS",
 ]

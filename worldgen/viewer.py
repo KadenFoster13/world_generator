@@ -182,11 +182,11 @@ class Viewer:
                          labelspacing=0.25, columnspacing=0.6, handlelength=1.2, borderaxespad=0)
 
         y = top - 2.05
-        layer_h = 0.27 * len(LAYERS)
+        layer_h = 0.235 * len(LAYERS)
         radio_ax = self._axes(x, y - layer_h, 2.4, layer_h)
         radio_ax.set_title("Layer", fontsize=11, loc="left", weight="bold")
         self.radio = RadioButtons(radio_ax, LAYERS, active=0,
-                                  label_props={"fontsize": [10]}, radio_props={"s": [90]})
+                                  label_props={"fontsize": [9.5]}, radio_props={"s": [80]})
         self.radio.on_clicked(self._on_layer)
 
         if TOGGLES:
@@ -745,6 +745,13 @@ class Viewer:
         if not (w.ocean[rc] or w.lake[rc]):
             text += (f"  farm {w.arable[rc]:.2f}  move {w.movement_cost[rc]:.1f}"
                      + (f"  harbour {w.harbour[rc]:.2f}" if w.coastal[rc] else ""))
+            from .nature import MINERALS, SPECIES
+            minerals = [m for m in MINERALS if getattr(w, m)[rc] > 0.3]
+            wild = [s.key.replace("_", " ") for i, s in enumerate(SPECIES) if w.species_native[i][rc]]
+            if minerals:
+                text += "  ores: " + ", ".join(minerals)
+            if wild:
+                text += f"  wild: {len(wild)} ({', '.join(wild[:4])}{'...' if len(wild) > 4 else ''})"
         flow, notes = self._edge_info(w)
         if flow[rc] > 0:
             tags = [name for name, mask in notes.items() if mask[rc]]

@@ -5,7 +5,12 @@ from matplotlib import colormaps
 from .generator import BIOMES, BIOME_ID, World, blur
 
 LAYERS = ["Biomes", "Elevation", "Plates", "Temperature", "Precipitation",
-          "Growing season", "Farmland", "Movement", "Rivers & harbours"]
+          "Growing season", "Farmland", "Movement", "Rivers & harbours", "Wild species", "Minerals"]
+MINERAL_COLOURS = {  # strongest mineral in each cell on the Minerals layer
+    "copper": (0.85, 0.45, 0.15), "tin": (0.55, 0.75, 0.95), "iron": (0.55, 0.15, 0.1),
+    "gold": (1.0, 0.85, 0.1), "silver": (0.85, 0.85, 0.9), "coal": (0.1, 0.1, 0.1),
+    "oil": (0.5, 0.15, 0.6), "saltpeter": (0.95, 0.95, 0.75),
+}
 _BIOME_RGB = np.array([c for _, c in BIOMES])
 
 
@@ -108,6 +113,26 @@ def render(world: World, layer: str = "Biomes") -> np.ndarray:
             img[props["rapids"]] = (0.85, 0.1, 0.1)
             img[props["fordable"] & ~props["rapids"]] = (0.95, 0.75, 0.1)
         return img
+
+    if layer == "Wild species":     # how many domesticable species live wild here
+        count = world.species_native.sum(axis=0)
+        img = colormaps["viridis"](np.clip(count / 10, 0, 1))[..., :3] * 0.85 + 0.1
+        img[count == 0] = (0.55, 0.55, 0.55)
+        return _with_water(img * shade, world, water)
+
+    if layer == "Minerals":         # the strongest deposit in each cell
+        grey = _BIOME_RGB[world.biome].mean(axis=-1, keepdims=True)
+        img = np.repeat(0.6 + 0.35 * grey, 3, axis=-1) * shade
+        img = _with_water(img, world, world.lake | (world.ocean & (world.oil < 0.3)))
+        names = list(MINERAL_COLOURS)
+        stack = np.stack([getattr(world, n) for n in names])
+        best = stack.argmax(axis=0)
+        strength = stack.max(axis=0)
+        colours = np.array([MINERAL_COLOURS[n] for n in names])
+        rich = strength > 0.3
+        mix = np.clip((strength[rich] - 0.3) / 0.4, 0.4, 1)[:, None]
+        img[rich] = img[rich] * (1 - mix) + colours[best[rich]] * mix
+        return np.clip(img, 0, 1)
 
     raise ValueError(layer)
 

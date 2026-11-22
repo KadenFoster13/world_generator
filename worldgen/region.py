@@ -139,6 +139,11 @@ def generate_region(world: World, box: RegionBox) -> World:
                    lake_level_m=np.where(lake, lake_level, np.nan), closed=closed)
     region.box = box
     finish_world(region, seasons, env)
+    # Facts that need the whole globe come from the world.
+    region.species_native = np.stack([nearest(layer) for layer in world.species_native]) & (
+        region.species_suitability >= 0.35)
+    for name in ("wind_east", "wind_north", "current_east", "current_north", "glacial_land", "glacial_ice"):
+        setattr(region, name, nearest(getattr(world, name)))
     return region
 
 

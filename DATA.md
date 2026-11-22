@@ -1,6 +1,6 @@
 # World data reference
 
-Data version 1. Generated from `worldgen/export.py` (`python -m worldgen.export --docs > DATA.md`).
+Data version 2. Generated from `worldgen/export.py` (`python -m worldgen.export --docs > DATA.md`).
 
 Every field is an array with one value per map cell (rows north to south, columns
 west to east starting at 180W), available as `world.<name>` and in files written by
@@ -50,6 +50,24 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `harbour` | 0..1 | natural harbour quality: sheltered water and river mouths (coastal cells) |
 | `wetland` | 0..1 | waterlogged ground (marsh, swamp, bog); cells above wetland_threshold get the Wetland biome |
 | `permafrost` | 0..1 | permanently frozen ground (0 = none, 1 = deep continuous permafrost) |
+| `species_suitability` | 0..1 (species, rows, cols) | how well each wild species in metadata['species'] could live in the cell |
+| `species_native` | bool (species, rows, cols) | the species lives wild here at the start of history (year 0) |
+| `copper` | 0..1 | copper deposits (mountain belts, volcanic arcs) |
+| `tin` | 0..1 | tin deposits (rare; old and active mountain belts) |
+| `iron` | 0..1 | iron ore (common; also bog iron in wetlands) |
+| `gold` | 0..1 | gold deposits |
+| `silver` | 0..1 | silver deposits |
+| `coal` | 0..1 | coal (lowland basins beside mountain belts) |
+| `oil` | 0..1 | oil (sedimentary basins and continental shelves; may be under shallow sea) |
+| `saltpeter` | 0..1 | natural saltpeter (hot deserts); needed for gunpowder |
+| `malaria` | 0..1 | malaria-type disease risk (hot, wet, low ground) |
+| `tsetse` | 0..1 | tsetse-fly zone, deadly to cattle and horses (hot woodland savanna) |
+| `wind_east` | m/s | prevailing wind over the sea, toward the east (negative = toward the west) |
+| `wind_north` | m/s | prevailing wind over the sea, toward the north |
+| `current_east` | m/s | surface ocean current, toward the east |
+| `current_north` | m/s | surface ocean current, toward the north |
+| `glacial_land` | bool | sea today but dry land at the height of the last ice age (land bridges) |
+| `glacial_ice` | bool | under ice sheets at the height of the last ice age |
 | `movement_cost` | x | effort to cross the cell on foot, 1 = flat grassland (inf on water); river crossings are extra, see the river edge fields |
 
 ## Rivers on edges
@@ -82,6 +100,36 @@ rapids = slope >= rapids_min_slope_m_per_km.
 16. Salt flat
 17. Glacier
 18. Wetland
+
+## Wild species
+
+Index into the first axis of `species_suitability` and `species_native`.
+
+| # | Species | Kind | Uses | Domestication difficulty | Food value |
+|---|---|---|---|---|---|
+| 0 | wild grain (wheat/barley-like) (`temperate_grain`) | crop | food, fodder | 1.0 | 1.0 |
+| 1 | hardy grain (rye/oat-like) (`cold_grain`) | crop | food, fodder | 1.4 | 0.8 |
+| 2 | wetland grain (rice-like) (`wet_grain`) | crop | food | 1.2 | 1.2 |
+| 3 | dry grain (millet/sorghum-like) (`tropical_grain`) | crop | food, fodder | 1.1 | 0.8 |
+| 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 3.0 | 1.3 |
+| 5 | pulses (bean/lentil-like) (`legume`) | crop | food | 1.0 | 0.7 |
+| 6 | highland tuber (potato-like) (`highland_tuber`) | crop | food | 1.3 | 1.1 |
+| 7 | tropical root crop (yam/taro-like) (`tropical_tuber`) | crop | food | 1.2 | 1.0 |
+| 8 | fruit and oil trees (olive/date/banana-like) (`tree_crop`) | crop | food, oil | 1.5 | 0.6 |
+| 9 | fibre plant (flax/cotton-like) (`fibre`) | crop | fibre | 1.2 | 0.0 |
+| 10 | wild cattle (`cattle`) | animal | meat, milk, traction, leather | 1.5 | 1.0 |
+| 11 | wild sheep and goats (`sheep_goat`) | animal | meat, milk, wool | 1.0 | 0.8 |
+| 12 | wild pig (`pig`) | animal | meat | 1.0 | 0.9 |
+| 13 | wild horse (`horse`) | animal | riding, traction, war, milk | 2.0 | 0.5 |
+| 14 | wild camel (`camel`) | animal | pack, riding, milk, war | 2.0 | 0.4 |
+| 15 | wild highland camelid (llama-like) (`llama`) | animal | pack, wool, meat | 1.5 | 0.4 |
+| 16 | wild fowl (chicken-like) (`fowl`) | animal | meat, eggs | 0.8 | 0.4 |
+
+## Climate over time
+
+`worldgen.ClimateHistory(world).at(year)` gives the temperature change and rainfall factor per
+cell, sea level, droughts and volcanic cooling for any simulation year (year 0 = about
+10,000 BCE). See `worldgen/climate_history.py`.
 
 ## Versions
 

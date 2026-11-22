@@ -18,6 +18,10 @@ planet (an equirectangular map that wraps east–west) built from simple physics
   cells, with width, depth, fords, navigability and rapids, so they can be borders.
 - **Land use**: soil fertility, farmland, fresh water, timber, ore, salt, fishing,
   natural harbours, distance to the coast and the effort to cross each cell.
+- **Nature for history**: wild crops and animals with native homelands (not every
+  continent gets horses or easy grains), copper, tin, iron, gold, silver, coal, oil and
+  saltpeter deposits, malaria and tsetse zones, sailing winds and currents, ice-age land
+  bridges, and a climate history over 12,000 years (`ClimateHistory`).
 - **Detail on demand**: the same world at 800, 1600 or 2400 px, and any area can be
   regenerated at 2–8× finer detail (down to ~3 km per cell) that matches the world map,
   with meandering rivers and deltas.
@@ -56,7 +60,7 @@ python -m worldgen --seed 42 --width 1600
 | Globe / Map, `O` | Switch to a globe view: drag to spin, scroll to zoom (hover still works) |
 | Resolution 800 / 1600 / 2400 | Same world, sharper (about 2 s / 9 s / 30 s per seed) |
 | Enhance, `E` / Clear, `C` | Regenerate the zoomed-in area in more detail / remove it |
-| Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, movement, rivers & harbours |
+| Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, movement, rivers & harbours, wild species, minerals |
 | Options | Coastal archipelagos, lakes, rivers on/off |
 | `S` | Save the current map as a PNG in `renders/` |
 | `X` | Export the world's data (and any enhanced region) as `.npz` in `renders/` |

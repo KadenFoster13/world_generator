@@ -90,6 +90,27 @@ class GenerationTests(unittest.TestCase):
         for a, b in zip(fast, plain):
             np.testing.assert_array_equal(a, b)
 
+    def test_nature(self):
+        from worldgen import MINERALS, SPECIES
+        w = self.world
+        self.assertEqual(w.species_native.shape[0], len(SPECIES))
+        # Species only live wild where they can live at all, and never at sea.
+        self.assertTrue((w.species_suitability[w.species_native] >= 0.35).all())
+        self.assertFalse(w.species_native[:, w.ocean].any())
+        self.assertTrue(w.species_native.any())
+        for m in MINERALS:
+            v = getattr(w, m)
+            self.assertTrue(((v >= 0) & (v <= 1)).all(), m)
+        self.assertTrue(w.glacial_land[~w.ocean].sum() == 0)  # only today's sea can be ice-age land
+
+    def test_climate_history(self):
+        from worldgen import ClimateHistory, sea_level_m
+        a, b = ClimateHistory(self.world).at(3000), ClimateHistory(self.world).at(3000)
+        np.testing.assert_array_equal(a.temperature_offset_c, b.temperature_offset_c)  # deterministic
+        self.assertLess(sea_level_m(0), sea_level_m(5000))
+        self.assertEqual(sea_level_m(9000), 0)
+        self.assertTrue((a.precip_factor > 0).all())
+
     def test_every_field_present(self):
         for name in FIELDS:
             if name not in ("lat", "lon", "plate"):

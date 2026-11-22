@@ -68,6 +68,7 @@ class WorldConfig:
     valley_width_km: float = 40.0        # how wide carved valleys spread
     wetland_threshold: float = 0.38      # wetness score (0..1) at which land becomes wetland
     delta_min_flow_m3s: float = 5000.0   # rivers this big fan into deltas at the sea (enhanced regions)
+    glacial_sea_drop_m: float = 100.0    # how much lower the sea was at the height of the last ice age
 
     # -------------------------------------------------------------- climate
     equator_temp_c: float = 28.0         # mean annual temperature at sea level on the equator

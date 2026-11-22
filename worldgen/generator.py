@@ -41,7 +41,8 @@ BIOMES = [
 ]
 BIOME_ID = {name: i for i, (name, _) in enumerate(BIOMES)}
 EARTH_RADIUS_KM = 6371.0
-DATA_VERSION = 1   # bump when World fields are added, removed or change meaning (see DATA.md)
+DATA_VERSION = 2   # bump when World fields are added, removed or change meaning (see DATA.md)
+# 1: worldgen 1.0.  2: worldgen 1.1 adds wild species, minerals, disease, seas, ice-age land.
 
 
 def _compact_state(obj, skip=()):
@@ -187,6 +188,25 @@ class World:
     movement_cost: np.ndarray = None
     wetland: np.ndarray = None
     permafrost: np.ndarray = None
+    # --- nature (worldgen 1.1): see nature.py and DATA.md
+    species_suitability: np.ndarray = None  # (species, rows, cols) 0..1
+    species_native: np.ndarray = None       # (species, rows, cols) bool: wild at the start of history
+    copper: np.ndarray = None
+    tin: np.ndarray = None
+    iron: np.ndarray = None
+    gold: np.ndarray = None
+    silver: np.ndarray = None
+    coal: np.ndarray = None
+    oil: np.ndarray = None
+    saltpeter: np.ndarray = None
+    malaria: np.ndarray = None
+    tsetse: np.ndarray = None
+    wind_east: np.ndarray = None
+    wind_north: np.ndarray = None
+    current_east: np.ndarray = None
+    current_north: np.ndarray = None
+    glacial_land: np.ndarray = None
+    glacial_ice: np.ndarray = None
     data_version: int = DATA_VERSION  # bumped whenever fields change meaning (see DATA.md)
 
     def __getstate__(self):  # display caches (names starting with _) aren't saved
@@ -1206,6 +1226,8 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
                   sea_raw=sea, land_scale=land_scale, depth_scale=depth_scale, wind=wind,
                   lake_level_m=lake_level, closed=closed)
     finish_world(world, seasons, terrain.env)
+    from .nature import add_global_nature
+    add_global_nature(world)
     return world
 
 
@@ -1257,6 +1279,8 @@ def finish_world(world, seasons, env):
     keep = np.isin(world.biome, [BIOME_ID[n] for n in ("Ice sheet", "Glacier", "Salt flat", "Lake",
                                                        "Alpine", "Deep ocean", "Shallow sea", "Sea ice")])
     world.biome[(world.wetland >= cfg.wetland_threshold) & ~keep] = BIOME_ID["Wetland"]
+    from .nature import add_cell_nature
+    add_cell_nature(world, env)
 
 
 def _classify(elev, ocean, t, p):

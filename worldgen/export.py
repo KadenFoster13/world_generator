@@ -22,6 +22,7 @@ from dataclasses import asdict
 import numpy as np
 
 from .generator import BIOMES, DATA_VERSION
+from .nature import MINERALS, SPECIES
 
 # name: (units, meaning). "Cell" fields have one value per map cell (rows north to south,
 # columns west to east from 180W). "Edge" fields describe the edge between a cell and its
@@ -76,6 +77,25 @@ FIELDS = {
     "harbour": ("0..1", "natural harbour quality: sheltered water and river mouths (coastal cells)"),
     "wetland": ("0..1", "waterlogged ground (marsh, swamp, bog); cells above wetland_threshold get the Wetland biome"),
     "permafrost": ("0..1", "permanently frozen ground (0 = none, 1 = deep continuous permafrost)"),
+    # --- nature (worldgen 1.1)
+    "species_suitability": ("0..1 (species, rows, cols)", "how well each wild species in metadata['species'] could live in the cell"),
+    "species_native": ("bool (species, rows, cols)", "the species lives wild here at the start of history (year 0)"),
+    "copper": ("0..1", "copper deposits (mountain belts, volcanic arcs)"),
+    "tin": ("0..1", "tin deposits (rare; old and active mountain belts)"),
+    "iron": ("0..1", "iron ore (common; also bog iron in wetlands)"),
+    "gold": ("0..1", "gold deposits"),
+    "silver": ("0..1", "silver deposits"),
+    "coal": ("0..1", "coal (lowland basins beside mountain belts)"),
+    "oil": ("0..1", "oil (sedimentary basins and continental shelves; may be under shallow sea)"),
+    "saltpeter": ("0..1", "natural saltpeter (hot deserts); needed for gunpowder"),
+    "malaria": ("0..1", "malaria-type disease risk (hot, wet, low ground)"),
+    "tsetse": ("0..1", "tsetse-fly zone, deadly to cattle and horses (hot woodland savanna)"),
+    "wind_east": ("m/s", "prevailing wind over the sea, toward the east (negative = toward the west)"),
+    "wind_north": ("m/s", "prevailing wind over the sea, toward the north"),
+    "current_east": ("m/s", "surface ocean current, toward the east"),
+    "current_north": ("m/s", "surface ocean current, toward the north"),
+    "glacial_land": ("bool", "sea today but dry land at the height of the last ice age (land bridges)"),
+    "glacial_ice": ("bool", "under ice sheets at the height of the last ice age"),
     "movement_cost": ("x", "effort to cross the cell on foot, 1 = flat grassland (inf on water); "
                            "river crossings are extra, see the river edge fields"),
 }
@@ -97,6 +117,9 @@ def _metadata(world):
         "data_version": DATA_VERSION,
         "config": asdict(world.cfg),
         "biomes": [name for name, _ in BIOMES],
+        "species": [{"key": s.key, "label": s.label, "kind": s.kind, "uses": list(s.uses),
+                     "domestication_difficulty": s.difficulty, "food_value": s.food} for s in SPECIES],
+        "minerals": list(MINERALS),
         "fields": {name: {"units": u, "meaning": m} for name, (u, m) in FIELDS.items()},
         "edge_notes": EDGE_NOTES,
         "grid": {"height": g.height, "width": g.width, "north_edge": g.lat0, "west_edge": g.lon0,
@@ -171,6 +194,15 @@ def fields_markdown():
     lines += [f"| `{name}` | {units} | {meaning} |" for name, (units, meaning) in FIELDS.items()]
     lines += ["", "## Rivers on edges", "", EDGE_NOTES, "", "## Biomes", ""]
     lines += [f"{i}. {name}" for i, (name, _) in enumerate(BIOMES)]
+    lines += ["", "## Wild species", "",
+              "Index into the first axis of `species_suitability` and `species_native`.", "",
+              "| # | Species | Kind | Uses | Domestication difficulty | Food value |", "|---|---|---|---|---|---|"]
+    lines += [f"| {i} | {s.label} (`{s.key}`) | {s.kind} | {', '.join(s.uses)} | {s.difficulty} | {s.food} |"
+              for i, s in enumerate(SPECIES)]
+    lines += ["", "## Climate over time", "",
+              "`worldgen.ClimateHistory(world).at(year)` gives the temperature change and rainfall factor per",
+              "cell, sea level, droughts and volcanic cooling for any simulation year (year 0 = about",
+              "10,000 BCE). See `worldgen/climate_history.py`."]
     lines += ["", "## Versions", "",
               "`data_version` changes whenever a field is added, removed or changes meaning, so a",
               "program can check it before trusting saved data."]
