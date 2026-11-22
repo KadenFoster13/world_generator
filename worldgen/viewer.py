@@ -12,6 +12,8 @@ Controls
   Globe (or press O) switches between the flat map and a globe: drag to spin it, scroll to zoom
   Enhance (or press E) regenerates the area you're zoomed into with 2-8x finer detail;
     Clear (or C) removes it. The enhanced area matches the world map, just sharper.
+  Auto (or A) turns on auto-Enhance: once you stop moving, a zoomed-in view is enhanced at
+    2x by itself (recent areas are remembered, so going back is instant). Remembered.
   Resolution buttons regenerate the same world sharper (800 fast, 2400 slow)
   Layer buttons on the right switch between biomes, elevation, plates, temperature, rain
   Options on the right turn features on/off (archipelagos, lakes, rivers); add more in config.py
@@ -39,7 +41,7 @@ from .config import CLIMATE_SLIDERS, DARK_MODE, DEFAULT, RESOLUTIONS, TERRAIN_SL
 from .export import save_world
 from .render import (GLOBE_BACKGROUND, LAYERS, RIVER_COLOUR, RIVER_LAYERS, globe_rivers, globe_view,
                      render, river_segments, save_map)
-from .region import MAX_REGION_PX, box_for_view, generate_region
+from .region import MAX_REGION_PX, RegionBox, box_for_view, generate_region
 from .generator import BIOMES, apply_climate, generate_terrain
 
 # Free keys from matplotlib's default shortcuts that the viewer uses itself.
@@ -68,6 +70,12 @@ THEMES = {
 SMOOTH_FROM_ZOOM = 3     # blend map pixels when zoomed in at least this far
 GLOBE_PX = 600           # height of the globe picture (it's twice as wide, like the map area)
 GLOBE_MAX_ZOOM = 8
+FRAME_MS = 8             # gather mouse moves for this long, then draw the latest
+SETTLE_MS = 220          # after the last drag or scroll step, redraw in full (rivers, auto-Enhance)
+AUTO_ENHANCE_FACTOR = 2  # auto-Enhance detail (quick: ~0.1-0.5 s)
+AUTO_ENHANCE_MAX_CELLS = 260   # ... only for views at most this many map cells across
+AUTO_ENHANCE_MARGIN = 0.25     # ... enhancing a bit beyond the view, so small moves don't redo it
+AUTO_ENHANCE_CACHE = 8   # enhanced areas remembered
 
 
 class Viewer:
@@ -89,6 +97,8 @@ class Viewer:
         self.region_image = None
         self._cache = {}         # rendered layers: (id(world), layer) -> image
         self.dark = bool(_load_preferences().get("dark", DARK_MODE))
+        self.auto_enhance = bool(_load_preferences().get("auto_enhance", False))
+        self._regions = []                # recently enhanced areas: (world id, region)
 
         # Figure height grows only if sliders are configured.
         rows = max(len(TERRAIN_SLIDERS), len(CLIMATE_SLIDERS))
@@ -109,6 +119,22 @@ class Viewer:
         self.timer = self.fig.canvas.new_timer(interval=DEBOUNCE_MS)
         self.timer.single_shot = True
         self.timer.add_callback(self._run_pending)
+        # While dragging or scrolling: rivers hidden, only the map redrawn (fast); in full
+        # once the view settles.
+        self.moving = False
+        self._background = None          # the window without the map, for fast redraws
+        self.settle_timer = self.fig.canvas.new_timer(interval=SETTLE_MS)
+        self.settle_timer.single_shot = True
+        self.settle_timer.add_callback(self._settle)
+        # Mouse moves and wheel steps arrive faster than frames can be drawn: remember only
+        # where the mouse is now (and the total zoom asked for), and draw that once.
+        self._drag_to = None
+        self._zoom_wanted = None          # (factor, x, y) still to apply
+        self.frame_timer = self.fig.canvas.new_timer(interval=FRAME_MS)
+        self.frame_timer.single_shot = True
+        self.frame_timer.add_callback(self._next_frame)
+        self._frame_due = False
+        self._blit_box = None
 
         c = self.fig.canvas
         c.mpl_connect("button_press_event", self._on_press)
@@ -149,8 +175,10 @@ class Viewer:
             b.on_clicked(lambda _, wd=width: self.set_resolution(wd))
             self.res_buttons[width] = b
         self._highlight_resolution()
-        self.btn_enhance = Button(self._axes(9.95, y, 0.95, bh), "Enhance")
-        self.btn_clear = Button(self._axes(11.0, y, 0.7, bh), "Clear")
+        self.btn_enhance = Button(self._axes(9.95, y, 0.8, bh), "Enhance")
+        self.btn_auto = Button(self._axes(10.8, y, 0.62, bh), "Auto")
+        self.btn_auto.on_clicked(lambda _: self.toggle_auto_enhance())
+        self.btn_clear = Button(self._axes(11.47, y, 0.55, bh), "Clear")
         self.btn_enhance.on_clicked(lambda _: self.enhance())
         self.btn_clear.on_clicked(lambda _: self.clear_region())
 
@@ -252,6 +280,11 @@ class Viewer:
                 widget.ax.set_facecolor(t["button"])
         self.btn_enhance.color = t["active"]
         self.btn_enhance.ax.set_facecolor(t["active"])
+        auto = t["active"] if self.auto_enhance else t["button"]
+        self.btn_auto.color = auto
+        self.btn_auto.ax.set_facecolor(auto)
+        self._background = None
+        self._blit_box = None
         self._highlight_resolution()
         if hasattr(self, "radio"):
             self.radio.set_radio_props({"edgecolor": t["fg"], "facecolor": t["fg"]})
@@ -269,6 +302,7 @@ class Viewer:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         self.clear_region(redraw=False)  # it belonged to the old world
+        self._regions = []
         t0 = time.perf_counter()
         if stage == "terrain" or self.terrain is None:
             self.terrain = generate_terrain(self.cfg)
@@ -286,24 +320,83 @@ class Viewer:
             self._cache[key] = render(world, layer)
         return self._cache[key]
 
-    def redraw(self):
+    def _rendered8(self, world, layer, shrink=1):
+        """The same picture as 8-bit colour (converted once; quick to draw), optionally
+        shrunk by `shrink` along each side (averaging blocks of pixels)."""
+        key = (id(world), layer, "u8", shrink)
+        if key not in self._cache:
+            img = np.clip(self._rendered(world, layer), 0, 1)
+            if shrink > 1:
+                h, w = img.shape[:2]
+                img = img.reshape(h // shrink, shrink, w // shrink, shrink, -1).mean(axis=(1, 3))
+            self._cache[key] = (img * 255 + 0.5).astype(np.uint8)
+        return self._cache[key]
+
+    def redraw(self, fast=False):
+        """Draw the view. fast=True (while moving) redraws only the map, if the window allows it."""
         if self.globe:
             self._draw_globe()
         else:
             self._draw_map()
         self._draw_title()
+        if fast and self._blit():
+            return
+        self._background = None
+        self._blit_box = None
         self.fig.canvas.draw_idle()
+
+    def _blit(self):
+        """Redraw just the map over a saved picture of the rest of the window."""
+        c = self.fig.canvas
+        if not getattr(c, "supports_blit", False):
+            return False
+        try:
+            if self._background is None:
+                self.ax.set_visible(False)
+                c.draw()
+                self._background = c.copy_from_bbox(self.fig.bbox)
+                self.ax.set_visible(True)
+            c.restore_region(self._background)
+            renderer = c.get_renderer()
+            self.ax.draw(renderer)
+            if self._blit_box is None:   # the map with its title and labels
+                from matplotlib.transforms import Bbox
+                box = Bbox.union([self.ax.get_tightbbox(renderer), self.ax.bbox]).padded(6)
+                self._blit_box = Bbox.intersection(box, self.fig.bbox) or self.fig.bbox
+            c.blit(self._blit_box)
+            return True
+        except Exception:          # a backend that can't: fall back to a full redraw
+            self.ax.set_visible(True)
+            self._background = None
+            return False
+
+    def _keep_moving(self):
+        """Note a drag or scroll step; the full redraw waits until the view settles."""
+        self.moving = True
+        self.settle_timer.stop()
+        self.settle_timer.start()
+
+    def _settle(self):
+        self.settle_timer.stop()
+        if self._zoom_wanted is not None:     # a wheel step not drawn yet
+            self.frame_timer.stop()
+            self._next_frame()
+        if not self.moving:
+            return
+        self.moving = False
+        if self.auto_enhance and not self.globe and self._auto_enhance():
+            return               # it redrew
+        self.redraw()
 
     def _draw_map(self):
         if self.globe_image is not None:
             self.globe_image.set_visible(False)
             self.globe_rivers.set_segments([])
-        img = np.roll(self._rendered(self.world, self.layer), -self.offset, axis=1)
-        if self.image is not None and self.image.get_array().shape[:2] != img.shape[:2]:
-            self.image.remove()  # resolution changed
-            self.image = None
+        if self.view is None:
+            self.view = self._full_view()
+        img, extent = self._visible_part(self.world, self.layer)
         if self.image is None:
-            self.image = self.ax.imshow(img, interpolation="nearest", zorder=1)
+            self.image = self.ax.imshow(img, interpolation="nearest", zorder=1, extent=extent)
             if not hasattr(self, "rivers"):
                 self.rivers = LineCollection([], colors=[RIVER_COLOUR], capstyle="round",
                                              joinstyle="round", zorder=3)
@@ -312,10 +405,41 @@ class Viewer:
                 self.view = self._full_view()
         else:
             self.image.set_data(img)
+            self.image.set_extent(extent)
         self.image.set_visible(True)
         self.ax.set_axis_on()
         self.ax.set_facecolor(self.theme["bg"])
         self._apply_view()
+
+    def _visible_part(self, world, layer):
+        """Just the part of the (wrapped) map in view, plus a small margin, as 8-bit colour.
+        When the view holds more map pixels than the screen has (zoomed out at high
+        resolution), a half-size copy is used: the same on screen, much quicker to draw."""
+        h, w = world.elevation_m.shape
+        x0, x1, y0, y1 = self.view
+        screen_px = max(self.ax.bbox.width, 1)
+        f = 1
+        while f < 4 and (x1 - x0) / (2 * f) >= screen_px and w % (2 * f) == 0 and h % (2 * f) == 0:
+            f *= 2
+        full = self._rendered8(world, layer, f)
+        m = 2 * f
+        c0 = int(np.floor(x0 + 0.5)) - m
+        c1 = int(np.ceil(x1 + 0.5)) + m
+        c0 -= (c0 + self.offset) % f                 # line up with the half-size pixels
+        c1 += (-(c1 + self.offset)) % f
+        c0, c1 = max(c0, -(self.offset % f)), min(c1, w + f)   # at most once round the globe
+        r0 = max((int(np.floor(y0 + 0.5)) - m) // f * f, 0)
+        r1 = min(-(-(int(np.ceil(y1 + 0.5)) + m) // f) * f, h)
+        hw = w // f
+        a = ((c0 + self.offset) % w) // f
+        n = max(-(-(c1 - c0) // f), 1)
+        rows = slice(r0 // f, r1 // f)
+        if a + n <= hw:                               # no wrap: a view of the map, no copying
+            img = full[rows, a:a + n]
+        else:                                         # crosses the map's edge
+            img = np.concatenate([full[rows, a:], full[rows, :a + n - hw]], axis=1)
+        c1 = c0 + n * f
+        return img, (c0 - 0.5, c1 - 0.5, r1 - 0.5, r0 - 0.5)
 
     def _draw_globe(self):
         # Half resolution while being dragged, so spinning stays smooth.
@@ -407,13 +531,13 @@ class Viewer:
         self.ax.set_xlim(x0, x1)
         self.ax.set_ylim(y1, y0)  # rows grow downward
         # Zoomed in, blend the map's pixels instead of showing hard-edged blocks.
-        smooth = "bilinear" if self.zoom >= SMOOTH_FROM_ZOOM else "nearest"
+        smooth = "bilinear" if self.zoom >= SMOOTH_FROM_ZOOM and not self.moving else "nearest"
         self.image.set_interpolation(smooth)
         if self.region_image is not None:
             region_zoom = self.zoom / self.region.box.factor
             self.region_image.set_interpolation("bilinear" if region_zoom >= SMOOTH_FROM_ZOOM else "nearest")
         extent = self._region_extent()
-        show_rivers = self.cfg.rivers and self.layer in RIVER_LAYERS
+        show_rivers = self.cfg.rivers and self.layer in RIVER_LAYERS and not self.moving
         if show_rivers:
             segs, widths = river_segments(self.world, self.offset, self.zoom, xlim=(x0, x1))
             if extent is not None and len(segs):  # the enhanced region draws its own rivers
@@ -426,7 +550,11 @@ class Viewer:
         else:
             self.rivers.set_segments([])
         self._draw_region(extent, show_rivers)
-        self._update_ticks()
+        if self.moving:              # labels catch up when the view settles
+            self.ax.set_xlim(x0, x1)
+            self.ax.set_ylim(y1, y0)
+        else:
+            self._update_ticks()
 
     def _set_view(self, x0, x1, y0, y1):
         """Store a new view, scrolling the wrapped map so the view stays on it."""
@@ -456,7 +584,7 @@ class Viewer:
         nx0 = cx - (cx - x0) * f
         ny0 = cy - (cy - y0) * f
         self._set_view(nx0, nx0 + new_span, ny0, ny0 + new_span / 2)
-        self.redraw()
+        self.redraw(fast=self.moving)
 
     def _update_ticks(self):
         w, h = self.cfg.width, self.cfg.height
@@ -494,6 +622,56 @@ class Viewer:
         self.region = generate_region(self.world, box)
         self.timings = f"enhanced in {time.perf_counter() - t0:.1f}s"
         self.redraw()
+
+    def toggle_auto_enhance(self):
+        self.auto_enhance = not self.auto_enhance
+        _save_preferences({**_load_preferences(), "auto_enhance": self.auto_enhance})
+        self.apply_theme()
+        if self.auto_enhance and not self.globe and self._auto_enhance():
+            return
+        self.redraw()
+
+    def _auto_enhance(self):
+        """Enhance the view at 2x if it is zoomed in enough and not enhanced already.
+        Returns True if it drew."""
+        x0, x1, y0, y1 = self.view
+        if x1 - x0 > AUTO_ENHANCE_MAX_CELLS:
+            return False
+        if self.region is not None and self._covers(self.region.box):
+            return False
+        for wid, region in self._regions:          # enhanced here before?
+            if wid == id(self.world) and self._covers(region.box):
+                self.clear_region(redraw=False)
+                self.region = region
+                self.redraw()
+                return True
+        mx, my = (x1 - x0) * AUTO_ENHANCE_MARGIN, (y1 - y0) * AUTO_ENHANCE_MARGIN
+        box = (box_for_view(self.world, x0 - mx + self.offset, x1 + mx + self.offset, y0 - my, y1 + my)
+               or box_for_view(self.world, x0 + self.offset, x1 + self.offset, y0, y1))
+        if box is None:
+            return False
+        box = RegionBox(box.row0, box.col0, box.rows, box.cols, AUTO_ENHANCE_FACTOR)
+        self.ax.set_title(f"Enhancing this area at {box.factor}x detail...", fontsize=self.fs(11))
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
+        t0 = time.perf_counter()
+        self.clear_region(redraw=False)
+        self.region = generate_region(self.world, box)
+        self._regions = [(w, r) for w, r in self._regions if w == id(self.world)][-(AUTO_ENHANCE_CACHE - 1):]
+        self._regions.append((id(self.world), self.region))
+        self.timings = f"auto-enhanced in {time.perf_counter() - t0:.1f}s"
+        self.redraw()
+        return True
+
+    def _covers(self, box):
+        """Does a region box contain the whole current view?"""
+        x0, x1, y0, y1 = self.view
+        w = self.cfg.width
+        left = (box.col0 - 0.5 - self.offset - x0) % w + x0   # nearest copy at or right of x0
+        if left > x0 + 1e-6:
+            left -= w
+        top = box.row0 - 0.5
+        return left <= x0 + 1e-6 and left + box.cols >= x1 - 1e-6 and top <= y0 + 1e-6 and top + box.rows >= y1 - 1e-6
 
     def clear_region(self, redraw=True):
         if self.region is None:
@@ -678,7 +856,10 @@ class Viewer:
             self.globe_zoom = float(np.clip(self.globe_zoom * factor, 1, GLOBE_MAX_ZOOM))
             self.redraw()
             return
-        self.zoom_at(factor, event.xdata, event.ydata)
+        self._keep_moving()
+        old = self._zoom_wanted[0] if self._zoom_wanted else 1.0
+        self._zoom_wanted = (old * factor, event.xdata, event.ydata)
+        self._schedule_frame()
 
     def _on_press(self, event):
         if event.inaxes is self.ax and event.button == 1:
@@ -689,6 +870,10 @@ class Viewer:
         self.drag = None
         if was_dragging and self.globe:
             self.redraw()  # sharpen the globe again
+        elif was_dragging and self.moving:
+            self.frame_timer.stop()
+            self._next_frame()  # the last position
+            self._settle()      # rivers back, auto-Enhance
 
     def _on_motion(self, event):
         if self.drag is None or event.x is None:
@@ -704,9 +889,37 @@ class Viewer:
         px_per_cell = self.ax.get_window_extent().width / (x1 - x0)
         dx = (event.x - x_start) / px_per_cell
         dy = (event.y - y_start) / px_per_cell   # screen y points up, rows point down
-        self.offset = off0
-        self._set_view(x0 - dx, x1 - dx, y0 + dy, y1 + dy)
-        self.redraw()
+        self._drag_to = (event.x, event.y)
+        self.moving = True
+        self._schedule_frame()
+
+    def _schedule_frame(self):
+        if not self._frame_due:
+            self._frame_due = True
+            self.frame_timer.start()
+
+    def _next_frame(self):
+        """Draw the newest drag position and the zoom gathered since the last frame."""
+        self._frame_due = False
+        drew = False
+        if self._zoom_wanted is not None:
+            factor, cx, cy = self._zoom_wanted
+            self._zoom_wanted = None
+            self.zoom_at(factor, cx, cy)
+            drew = True
+        if self._drag_to is not None and self.drag is not None and not self.globe:
+            x, y = self._drag_to
+            self._drag_to = None
+            x_start, y_start, off0, view0, _, _ = self.drag
+            x0, x1, y0, y1 = view0
+            px_per_cell = self.ax.get_window_extent().width / (x1 - x0)
+            dx = (x - x_start) / px_per_cell
+            dy = (y - y_start) / px_per_cell   # screen y points up, rows point down
+            self.offset = off0
+            self._set_view(x0 - dx, x1 - dx, y0 + dy, y1 + dy)
+            self.redraw(fast=True)
+            drew = True
+        return drew
 
     def _on_key(self, event):
         x0, x1, y0, y1 = self.view
@@ -743,6 +956,8 @@ class Viewer:
             self.enhance()
         elif event.key in ("f", "F"):
             self.toggle_favourite()
+        elif event.key in ("a", "A"):
+            self.toggle_auto_enhance()
         elif event.key in ("d", "D"):
             self.toggle_dark()
         elif event.key in ("g", "G"):

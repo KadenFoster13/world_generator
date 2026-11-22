@@ -55,11 +55,12 @@ python -m worldgen --seed 42 --width 1600
 |---|---|
 | Prev / Next / Random, seed box | Browse seeds |
 | Mouse wheel, `+` / `-` | Zoom around the cursor |
-| Drag, arrow keys | Move around (the globe wraps east–west) |
+| Drag, arrow keys | Move around (the globe wraps east–west); rivers hide while you move and return when you stop, which keeps it smooth |
 | Reset view, `R` | Zoom back out |
 | Globe / Map, `O` | Switch to a globe view: drag to spin, scroll to zoom (hover still works) |
 | Resolution 800 / 1600 / 2400 | Same world, sharper (about 2 s / 9 s / 30 s per seed) |
 | Enhance, `E` / Clear, `C` | Regenerate the zoomed-in area in more detail / remove it |
+| Auto, `A` | Auto-Enhance on/off: once you stop moving, a zoomed-in view (about 3x or closer at 800 px) is enhanced at 2x by itself in 0.1-1 s; recent areas are remembered (setting remembered) |
 | Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, movement, rivers & harbours, wild species, minerals |
 | Options | Coastal archipelagos, lakes, rivers on/off |
 | `S` | Save the current map as a PNG in `renders/` |
