@@ -121,12 +121,16 @@ def species_native(world, suitability):
     """Where each species lives wild at the start of history (species, rows, cols) bool.
 
     Each landmass independently may or may not have a species (smaller landmasses less
-    often); if it does, the species lives within `reach_km` of one or two homelands.
+    often). If it does, the species spreads outward from one or two homelands *through
+    its habitat*: easily across good habitat, slowly across poor habitat, and not at all
+    across the sea, so ranges follow grasslands, valleys and coasts and stop at deserts
+    and mountains instead of being circles. A little randomness in how hard each area is
+    to cross keeps the edges irregular.
     """
     rng = np.random.default_rng((world.cfg.seed, 777))
     lm, area = world.landmass_id, world.landmass_area
-    kpp = world.grid.km_per_px
     out = np.zeros(suitability.shape, bool)
+    coarse = _CoarseGrid(world)
     for i, sp in enumerate(SPECIES):
         sp_rng = np.random.default_rng(rng.integers(2 ** 63))   # fixed draws per species
         suit = suitability[i]
@@ -149,10 +153,81 @@ def species_native(world, suitability):
                 homes.ravel()[cells[min(np.searchsorted(cumulative, p), len(cells) - 1)]] = True
         if not homes.any():
             continue
-        dist, iy, ix = distance_to(homes)
-        same_land = lm[iy, ix] == lm
-        out[i] = (dist * kpp <= sp.reach_km) & same_land & (suit >= 0.35)
+        noise_seed = world.cfg.seed * 7919 + 515151 + i * 104729
+        effort = coarse.spread(homes, suit, noise_seed=noise_seed, reach_km=sp.reach_km * RANGE_EFFORT)
+        # Ragged, patchy edges: how far the species gets, and how poor a habitat it will
+        # put up with, both vary from place to place. (One shared pair of noise maps,
+        # shifted east-west by a different amount for each species, is plenty.)
+        if i == 0:
+            xyz = world.grid.xyz
+            edge_noise = (fbm(Perlin3(noise_seed + 2), xyz, 10, 3), fbm(Perlin3(noise_seed + 3), xyz, 16, 2))
+        offset = int(sp_rng.integers(lm.shape[1]))
+        budget = sp.reach_km * RANGE_EFFORT * (1 + 0.4 * np.roll(edge_noise[0], offset, axis=1))
+        tolerance = 0.35 + 0.15 * np.roll(edge_noise[1], -offset, axis=1)
+        out[i] = (effort <= budget) & (suit >= tolerance)
     return out
+
+
+RANGE_EFFORT = 1.5          # effort budget relative to reach_km (good habitat costs ~1 per km)
+COARSE_WIDTH = 400          # ranges are grown on a grid this wide (~100 km cells), then refined
+
+
+class _CoarseGrid:
+    """A coarser copy of the world for growing species ranges quickly."""
+
+    def __init__(self, world):
+        from .generator import Grid
+
+        h, w = world.ocean.shape
+        self.f = max(1, w // COARSE_WIDTH)
+        self.shape = (h // self.f, w // self.f)
+        self.full = (h, w)
+        self.wraps = world.grid.wraps
+        land = (~world.ocean & ~world.lake).astype(np.float32)
+        self.land = self._down(land) > 0.5
+        self.grid = Grid(*self.shape) if self.wraps else None
+        km = world.grid.km_per_px * self.f
+        cos_row = np.maximum(np.cos(np.radians(self._down(world.grid.lat)[:, :1])), 0.05)
+        self.km_ns, self.km_ew = km, km * cos_row
+
+    def _down(self, a):
+        f = self.f
+        h, w = self.shape
+        return a[:h * f, :w * f].reshape(h, f, w, f).mean(axis=(1, 3))
+
+    def spread(self, homes, suit, noise_seed, reach_km):
+        """Effort (km-equivalents) to reach each full-resolution cell from the homelands."""
+        from .generator import shift
+
+        homes_c = self._down(homes.astype(np.float32)) > 0
+        suit_c = self._down(suit)
+        # Random difficulty at two scales: broad (~1000 km) and local (~300 km), so even
+        # uniform habitat gets ragged edges, lobes and gaps.
+        noise = (fbm(Perlin3(noise_seed), self.grid.xyz, 4, 3)
+                 + 0.6 * fbm(Perlin3(noise_seed + 1), self.grid.xyz, 12, 2)) if self.grid is not None else 0.0
+        # Effort per km of crossing a cell: 1 in ideal habitat, more in poor habitat,
+        # a lot in unsuitable gaps (still crossable if narrow), impossible over water.
+        cost = np.where(suit_c >= 0.2, 1 / (0.25 + 0.75 * suit_c), 8.0) * np.exp(0.9 * noise)
+        cost = np.where(self.land, cost, np.inf)
+        dist = np.where(homes_c, 0.0, np.inf)
+        steps = []
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if dy or dx:
+                    length = np.hypot(dy * self.km_ns, dx * self.km_ew) * np.ones(self.shape)
+                    steps.append((dy, dx, length * 0.5 * (cost + shift(cost, dy, dx))))
+        for _ in range(int(reach_km / self.km_ns) + 10):
+            best = dist
+            for dy, dx, step in steps:
+                best = np.minimum(best, shift(dist, dy, dx) + step)
+            if np.array_equal(best, dist):
+                break
+            dist = best
+        f = self.f
+        full = np.repeat(np.repeat(dist, f, axis=0), f, axis=1)
+        out = np.full(self.full, np.inf)
+        out[:full.shape[0], :full.shape[1]] = full
+        return out
 
 
 # ----------------------------------------------------------------- minerals

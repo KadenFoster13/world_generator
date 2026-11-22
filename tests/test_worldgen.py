@@ -94,8 +94,10 @@ class GenerationTests(unittest.TestCase):
         from worldgen import MINERALS, SPECIES
         w = self.world
         self.assertEqual(w.species_native.shape[0], len(SPECIES))
-        # Species only live wild where they can live at all, and never at sea.
-        self.assertTrue((w.species_suitability[w.species_native] >= 0.35).all())
+        # Species only live wild where they can live at all (the minimum habitat quality
+        # varies from place to place, around 0.35), and never at sea.
+        self.assertTrue((w.species_suitability[w.species_native] >= 0.1).all())
+        self.assertGreater(np.median(w.species_suitability[w.species_native]), 0.5)
         self.assertFalse(w.species_native[:, w.ocean].any())
         self.assertTrue(w.species_native.any())
         for m in MINERALS:
