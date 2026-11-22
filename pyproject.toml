@@ -4,15 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "worldgen"
-version = "0.1.0"
+version = "1.0.0"
 description = "Procedural Earth-like worlds: plate tectonics, climate, biomes, lakes and rivers, with an interactive viewer."
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "matplotlib>=3.7",
 ]
+
+[project.optional-dependencies]
+fast = ["numba>=0.60"]   # compiles the river routing: much faster, especially at 1600/2400 px
 
 [project.scripts]
 worldgen = "worldgen.viewer:main"

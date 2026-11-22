@@ -36,9 +36,23 @@ BIOMES = [
     ("Alpine", (0.55, 0.51, 0.47)),
     ("Lake", (0.32, 0.58, 0.82)),
     ("Salt flat", (0.93, 0.90, 0.82)),
+    ("Glacier", (0.85, 0.93, 0.98)),
+    ("Wetland", (0.33, 0.47, 0.37)),
 ]
 BIOME_ID = {name: i for i, (name, _) in enumerate(BIOMES)}
 EARTH_RADIUS_KM = 6371.0
+DATA_VERSION = 1   # bump when World fields are added, removed or change meaning (see DATA.md)
+
+
+def _compact_state(obj, skip=()):
+    """Pickle state with 64-bit floats stored as 32-bit (half the size, plenty of precision)."""
+    def shrink(v):
+        if isinstance(v, np.ndarray) and v.dtype == np.float64:
+            return v.astype(np.float32)
+        if isinstance(v, dict):
+            return {k: shrink(x) for k, x in v.items()}
+        return v
+    return {k: shrink(v) for k, v in obj.__dict__.items() if k not in skip and not k.startswith("_")}
 
 
 @dataclass
@@ -64,6 +78,14 @@ class Grid:
     @property
     def km_per_px(self):
         return np.radians(self.dpp) * EARTH_RADIUS_KM
+
+    def __getstate__(self):  # save only the parameters; coordinates are rebuilt on load
+        return dict(height=self.height, width=self.width, lat0=self.lat0, lon0=self.lon0,
+                    dpp=self.dpp, wraps=self.wraps)
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.__post_init__()
 
     @property
     def equivalent_width(self):
@@ -94,6 +116,13 @@ class Terrain:
     arch_dist: np.ndarray = None  # km from land before the archipelagos were added
     arch_sea: float = 0.0
     layout: dict = None      # plate centres, motions and groupings
+
+    def __getstate__(self):  # lat/lon/xyz come back from the grid
+        return _compact_state(self, skip=("lat", "lon", "xyz"))
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        self.lat, self.lon, self.xyz = self.grid.lat, self.grid.lon, self.grid.xyz
 
 
 @dataclass
@@ -126,6 +155,45 @@ class World:
     wind: dict = None         # moisture carried by the winds (smooth, large-scale)
     lake_level_m: np.ndarray = None  # water surface height where there's a lake, else NaN
     closed: np.ndarray = None # bool: basins with no outflow (water evaporates)
+
+    # --- seasons (see DATA.md for every field's meaning and units)
+    warmest_month_c: np.ndarray = None
+    coldest_month_c: np.ndarray = None
+    wettest_month_mm: np.ndarray = None
+    driest_month_mm: np.ndarray = None
+    rain_seasonality: np.ndarray = None
+    warm_months: np.ndarray = None
+    growing_months: np.ndarray = None
+    # --- rivers on cell edges: "_east" = edge to the cell on the right, "_south" = below
+    river_flow_east: np.ndarray = None
+    river_flow_south: np.ndarray = None
+    river_dry_flow_east: np.ndarray = None
+    river_dry_flow_south: np.ndarray = None
+    river_slope_east: np.ndarray = None
+    river_slope_south: np.ndarray = None
+    river_paths: list = None  # corner paths for drawing: (rows, cols, flows)
+    # --- land
+    slope_m_per_km: np.ndarray = None
+    soil_fertility: np.ndarray = None
+    arable: np.ndarray = None
+    fresh_water: np.ndarray = None
+    timber: np.ndarray = None
+    ore: np.ndarray = None
+    salt: np.ndarray = None
+    fish: np.ndarray = None
+    coastal: np.ndarray = None
+    dist_to_coast_km: np.ndarray = None
+    harbour: np.ndarray = None
+    movement_cost: np.ndarray = None
+    wetland: np.ndarray = None
+    permafrost: np.ndarray = None
+    data_version: int = DATA_VERSION  # bumped whenever fields change meaning (see DATA.md)
+
+    def __getstate__(self):  # display caches (names starting with _) aren't saved
+        return _compact_state(self)
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
 
 # ------------------------------------------------------------------- helpers
@@ -390,7 +458,7 @@ def _pick_point(rng, accept, tries=300):
     return None
 
 
-NOISE_NAMES = ("coast", "width", "dist", "gaps", "texture", "old", "old_mask", "hills", "arch")
+NOISE_NAMES = ("coast", "width", "dist", "gaps", "texture", "old", "old_mask", "hills", "arch", "arch_fine")
 
 
 def generate_terrain(cfg: WorldConfig) -> Terrain:
@@ -483,6 +551,7 @@ def generate_terrain(cfg: WorldConfig) -> Terrain:
     suture_mask = (piece_edge & (owner[piece] >= 0) & (owner[piece] == owner[nb])
                    & (plate_of[piece] == plate_of[nb]))
     suture = np.zeros_like(crust)
+    old_profile = np.zeros_like(crust)
     if suture_mask.any():
         old_profile, *_ = belt(suture_mask, cfg.mountain_width_km * 1.3)
         suture = cfg.suture_factor * cfg.mountain_height * 0.6 * old_profile * landness
@@ -494,6 +563,11 @@ def generate_terrain(cfg: WorldConfig) -> Terrain:
         suture=suture,                                  # x gaps x ridge texture
         rift=cfg.rift_depth * pulling * rift_shape * landness,  # x segment gaps
         ridge=cfg.mid_ocean_ridge_height * pulling * np.exp(-(d / (2.0 * wdt)) ** 2) * (1 - landness),
+        # Not terrain, but facts that come from the same tectonics:
+        # volcanoes along collisions near the sea (island arcs, Andes-type ranges) and hotspots
+        volcanic=np.clip(1.5 * colliding * profile * (1 - 0.6 * landness), 0, 1),
+        # metal ores in mountain belts, active or ancient
+        ore=np.clip(1.2 * colliding * profile * landness + 0.7 * old_profile * landness, 0, 1),
     )
 
     # --- hotspot island chains, trailing behind the plate's motion
@@ -514,13 +588,16 @@ def generate_terrain(cfg: WorldConfig) -> Terrain:
             p = move_along(p0, trail + jitter[j], j * spacing[j])
             hot_stamps.append((p, 0.016 * (1 - 0.5 * age) * sizes[j], 0.95 - 0.55 * age))
 
+    for centre, radius, _ in hot_stamps:  # hotspot volcanoes, for volcanic soils
+        stamp(env["volcanic"], grid, centre, radius * 1.5, 1.0)
     raw = _synthesize(cfg, grid, extra, env, noises, hot_stamps)
 
     # --- coastal archipelagos (last, so turning them off doesn't change anything else)
     arch_stamps, arch_dist, arch_sea = [], None, 0.0
     if cfg.archipelagos:
         arch_stamps, arch_dist, arch_sea = _plan_archipelagos(raw, cfg, rng, grid)
-        raw = _apply_archipelagos(raw, cfg, grid, arch_stamps, arch_dist, arch_sea, noises["arch"], extra)
+        raw = _apply_archipelagos(raw, cfg, grid, arch_stamps, arch_dist, arch_sea, noises["arch"], extra,
+                                  noises["arch_fine"])
 
     return Terrain(cfg=cfg, raw=raw, plate=plate, piece=piece, plate_is_continental=owner >= 0,
                    boundary=boundary, convergence=convergence, crust=crust,
@@ -555,15 +632,21 @@ def _synthesize(cfg, grid, extra, env, noises, hot_stamps):
 
     for centre, radius, height in hot_stamps:
         stamp(raw, grid, centre, radius, height, op="add")
+    # Rugged volcanic coasts and slopes (hotspot islands, island arcs).
+    if "arch_fine" in noises and "volcanic" in env:
+        raw += 0.08 * fbm(noises["arch_fine"], xyz, 45, 3, extra=extra) * env["volcanic"]
     return raw
 
 
-def stamp(field, grid, centre, radius, height, op="max"):
-    """Draw a Gaussian bump of `radius` radians on the sphere, touching only nearby pixels."""
+def stamp(field, grid, centre, radius, height, op="max", stretch=1.0, axis=None):
+    """Draw a Gaussian bump of `radius` radians on the sphere, touching only nearby pixels.
+
+    With `stretch` > 1 and a tangent `axis`, the bump is an ellipse, long along `axis`.
+    """
     h, w = field.shape
     clat = np.degrees(np.arcsin(np.clip(centre[2], -1, 1)))
     clon = np.degrees(np.arctan2(centre[1], centre[0]))
-    reach = np.degrees(3 * radius)
+    reach = np.degrees(3 * radius * max(stretch, 1.0))
     row = (grid.lat0 - clat) / grid.dpp - 0.5
     r0 = max(0, int(row - reach / grid.dpp) - 1)
     r1 = min(h, int(row + reach / grid.dpp) + 2)
@@ -580,7 +663,11 @@ def stamp(field, grid, centre, radius, height, op="max"):
         if len(cols) == 0:
             return
     sub = tuple(c[r0:r1][:, cols] for c in grid.xyz)
-    bump = height * np.exp(-(chord_distance(sub, centre) / radius) ** 2)
+    d2 = chord_distance(sub, centre) ** 2
+    if axis is not None and stretch != 1.0:
+        along = (sub[0] - centre[0]) * axis[0] + (sub[1] - centre[1]) * axis[1] + (sub[2] - centre[2]) * axis[2]
+        d2 = d2 - along ** 2 + (along / stretch) ** 2
+    bump = height * np.exp(-d2 / radius ** 2)
     if op == "add":
         field[r0:r1, cols] += bump
     else:
@@ -639,15 +726,18 @@ def _plan_archipelagos(raw, cfg, rng, grid):
         heading = unit(p0 - p)
         large = set(chain_rng.choice(steps, min(steps, int(chain_rng.integers(2, 5))), replace=False).tolist())
         for s in range(steps):
+            side = np.cross(p, heading)
             if s in large:
                 size = chain_rng.uniform(0.028, 0.05)
                 for j in range(int(chain_rng.integers(2, 5))):  # elongated along the chain
-                    stamps.append((move_along(p, heading, j * size * 0.8), size, chain_rng.uniform(0.4, 0.6)))
+                    axis = _turn(heading, side, chain_rng.normal(0, 0.4))
+                    stamps.append((move_along(p, heading, j * size * 0.8), size * chain_rng.uniform(0.7, 1.1),
+                                   chain_rng.uniform(0.4, 0.6), chain_rng.uniform(1.0, 1.8), axis))
             elif chain_rng.random() < 0.85:
-                side = np.cross(p, heading)
                 for _ in range(int(chain_rng.integers(1, 4))):
                     q = unit(p + side * chain_rng.normal(0, 0.02) + heading * chain_rng.normal(0, 0.008))
-                    stamps.append((q, chain_rng.uniform(0.008, 0.02), chain_rng.uniform(0.22, 0.4)))
+                    stamps.extend(_island_lobes(q, heading, side, chain_rng.uniform(0.008, 0.02),
+                                                chain_rng.uniform(0.22, 0.4), chain_rng))
             nxt = move_along(p, heading, step)
             # Carry the heading forward and bend it a little, so chains curve.
             heading = unit(nxt - p)
@@ -656,17 +746,62 @@ def _plan_archipelagos(raw, cfg, rng, grid):
     return stamps, dist, sea
 
 
-def _apply_archipelagos(raw, cfg, grid, stamps, dist_km, sea, rough_noise, extra):
+class _WarpedGrid:
+    """A grid whose xyz positions are nudged by smooth noise (for drawing shapes)."""
+
+    def __init__(self, grid, xyz):
+        self.lat0, self.lon0, self.dpp, self.wraps = grid.lat0, grid.lon0, grid.dpp, grid.wraps
+        self.xyz = xyz
+
+
+def _warped_grid(grid, noise, amount):
+    x, y, z = grid.xyz
+    offsets = []
+    for k in range(3):  # two octaves of noise per axis, different offsets per axis
+        s = 50.0 * (k + 1)
+        o = noise(x * 25 + s, y * 25 + s, z * 25 + s) + 0.5 * noise(x * 50 + s, y * 50 + s, z * 50 + s)
+        offsets.append(o)
+    wx, wy, wz = x + amount * offsets[0], y + amount * offsets[1], z + amount * offsets[2]
+    norm = np.sqrt(wx * wx + wy * wy + wz * wz)
+    return _WarpedGrid(grid, (wx / norm, wy / norm, wz / norm))
+
+
+def _turn(a, b, angle):
+    """Rotate tangent direction `a` toward `b` by `angle` radians."""
+    return unit(a * np.cos(angle) + b * np.sin(angle))
+
+
+def _island_lobes(centre, heading, side, radius, height, rng):
+    """One small island as 1-3 overlapping, stretched lobes, so islands vary in shape."""
+    lobes = []
+    for k in range(int(rng.integers(1, 4))):
+        direction = _turn(heading, side, rng.uniform(0, np.pi))
+        offset = 0.0 if k == 0 else rng.uniform(0.6, 1.3) * radius
+        lobes.append((move_along(centre, direction, offset) if offset else centre,
+                      radius * rng.uniform(0.5, 1.0), height * rng.uniform(0.8, 1.1),
+                      rng.uniform(1.0, 2.8), _turn(heading, side, rng.uniform(0, np.pi))))
+    return lobes
+
+
+def _apply_archipelagos(raw, cfg, grid, stamps, dist_km, sea, rough_noise, extra, fine_noise=None):
     """Raise the planned islands out of the sea (works on the globe or a region)."""
     field = np.zeros_like(raw)
-    for centre, radius, height in stamps:
-        stamp(field, grid, centre, radius, height)
+    # Draw the islands on a gently warped copy of the grid, so ovals bend into organic
+    # shapes (hooks, crescents, kidneys) instead of staying ellipses.
+    warped = _warped_grid(grid, rough_noise, cfg.island_warp_km / EARTH_RADIUS_KM)
+    for centre, radius, height, *shape in stamps:
+        stamp(field, warped, centre, radius, height, stretch=shape[0] if shape else 1.0,
+              axis=shape[1] if shape else None)
     # Keep a strait of open water between the islands and the mainland, so chains
     # stay separate islands instead of growing out of the coast as peninsulas.
     gap = cfg.archipelago_coast_gap_km
     field *= smoothstep(gap, gap + 250, dist_km)
     rough = fbm(rough_noise, grid.xyz, 18, 4, extra=extra)
-    target = sea - 0.08 + field * (1 + 0.8 * rough)
+    # Finer noise for small bays and headlands.
+    fine = fbm(fine_noise, grid.xyz, 45, 3, extra=extra) if fine_noise is not None else 0.0
+    # The shoreline noise doesn't fade with island height, so even small islands get
+    # ragged coasts instead of smooth ovals.
+    target = sea - 0.08 + field * (1 + 1.0 * rough + 0.5 * fine) + 0.07 * fine * smoothstep(0.0, 0.12, field)
     blend = smoothstep(0.0, 0.06, field)   # also lifts a shallow shelf around the islands
     return raw + (np.maximum(raw, target) - raw) * blend
 
@@ -879,30 +1014,21 @@ def _to_metres(raw, sea, land_scale, depth_scale, cfg):
 def _climate(cfg, grid, elevation_m, ocean, wind=None):
     """Temperature and precipitation on any grid.
 
-    `wind` holds the moisture carried in by the prevailing winds. On the whole globe
-    it's computed here; an enhanced region passes in the globe's (it depends on
-    oceans and mountains far upwind, outside the region).
+    `wind` holds the large-scale effects of winds and ocean currents (moisture carried
+    inland, monsoons, sea temperatures). On the whole globe it's computed here; an
+    enhanced region passes in the globe's (they depend on oceans and mountains far
+    away, outside the region).
     """
     xyz, lat = grid.xyz, grid.lat
     noise = _NoiseBank(cfg.seed + 99991)
     t_n, tlat_n, wob_n, p_n, tj_n, pj_n = (noise.next() for _ in range(6))
 
-    # Temperature: latitude + altitude + a little noise. Ocean currents and weather bend
-    # the temperature bands instead of following latitude exactly.
-    t_lat = np.clip(np.abs(lat + 5 * fbm(tlat_n, xyz, 2.0, 4)), 0, 90)
-    temperature = (cfg.equator_temp_c - (cfg.equator_temp_c - cfg.pole_temp_c) * (t_lat / 90) ** 2
-                   - cfg.lapse_rate_c_per_km * np.maximum(elevation_m, 0) / 1000
-                   + 1.5 * fbm(t_n, xyz, 3, 3))
-
-    # Precipitation: global circulation bands x moisture carried in by the wind.
-    wobbly_lat = np.abs(lat + 7 * fbm(wob_n, xyz, 2.5, 3))
-    band = np.interp(wobbly_lat, [0, 8, 18, 27, 38, 52, 65, 80, 90],
-                     [1.0, 0.95, 0.5, 0.22, 0.5, 0.8, 0.55, 0.3, 0.2])
     if wind is None:
         kpp = grid.km_per_px
         smooth_relief = blur(np.maximum(elevation_m, 0), 200 / kpp)  # rain shadows come from ranges
         moisture, uplift = _wind_sweep(smooth_relief, ocean, lat, cfg)
         monsoon, _ = _wind_sweep(smooth_relief, ocean, lat, cfg, reach_km=cfg.monsoon_reach_km)
+        current_temp, current_dry = _ocean_currents(ocean, grid, cfg)
         wind = dict(
             # Extra north-south smoothing hides the row-by-row wind streaks.
             moisture=blur(moisture, (250 / kpp, 150 / kpp)),
@@ -910,7 +1036,21 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
             # Rain squeezed out on windward slopes is measured per pixel climbed; finer
             # pixels climb less each, so scale it back up to match every resolution.
             uplift=blur(uplift, 100 / kpp) * (50.0 / kpp),
+            current_temp=current_temp,
+            current_dry=current_dry,
         )
+
+    # Temperature: latitude + altitude + ocean currents + a little noise. Weather bends
+    # the temperature bands instead of following latitude exactly.
+    t_lat = np.clip(np.abs(lat + 5 * fbm(tlat_n, xyz, 2.0, 4)), 0, 90)
+    temperature = (cfg.equator_temp_c - (cfg.equator_temp_c - cfg.pole_temp_c) * (t_lat / 90) ** 2
+                   - cfg.lapse_rate_c_per_km * np.maximum(elevation_m, 0) / 1000
+                   + wind["current_temp"] + 1.5 * fbm(t_n, xyz, 3, 3))
+
+    # Precipitation: global circulation bands x moisture carried in by the wind.
+    wobbly_lat = np.abs(lat + 7 * fbm(wob_n, xyz, 2.5, 3))
+    band = np.interp(wobbly_lat, [0, 8, 18, 27, 38, 52, 65, 80, 90],
+                     [1.0, 0.95, 0.5, 0.22, 0.5, 0.8, 0.55, 0.3, 0.2])
     # Wet bands rain a lot even far inland (convection, recycled moisture from forests).
     inland_floor = 0.15 + 0.35 * band
     precip = (cfg.max_precip_mm * band * (inland_floor + (1 - inland_floor) * wind["moisture"])
@@ -921,13 +1061,107 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
     # is mostly felt on west coasts and in interiors (Sahara, Atacama, Australia).
     subtropics = np.exp(-((wobbly_lat - 24) / 10) ** 2)
     precip += cfg.max_precip_mm * cfg.monsoon_strength * subtropics * wind["monsoon"]
+    # Cold currents chill the air over the sea so it can't rain: coastal deserts.
+    precip *= 1 - 0.65 * wind["current_dry"]
     precip = np.maximum(precip, 0)
 
     # A little fine noise on the biome thresholds so borders wander like real ecotones.
     t_jitter = 1.2 * fbm(tj_n, xyz, 12, 3)
     p_jitter = 1 + 0.18 * fbm(pj_n, xyz, 12, 3)
     biome = _classify(elevation_m, ocean, temperature + t_jitter, precip * p_jitter)
-    return temperature, precip, biome, wind
+    seasons = _seasons(cfg, lat, wobbly_lat, subtropics, temperature, precip, wind)
+    # Mountain glaciers: snowy land whose warmest month stays around freezing
+    # (also on high tropical peaks, like Kilimanjaro).
+    glacier = (~ocean & (seasons["warmest_month_c"] + t_jitter < cfg.glacier_summer_max_c)
+               & (precip > 250) & (biome != BIOME_ID["Ice sheet"]))
+    biome[glacier] = BIOME_ID["Glacier"]
+    return temperature, precip, biome, wind, seasons
+
+
+def _row_distance_to_land(ocean, px_km, toward_east):
+    """km along each row from every cell to the nearest land in one direction (wraps)."""
+    h, w = ocean.shape
+    dist = np.full(h, 1e9)
+    out = np.zeros((h, w))
+    cols = range(w - 1, -1, -1) if toward_east else range(w)
+    for lap in range(2):  # two laps so distance can carry across the map's edge
+        for c in cols:
+            dist = np.where(ocean[:, c], dist + px_km, 0.0)
+            if lap:
+                out[:, c] = dist
+    return out
+
+
+def _ocean_currents(ocean, grid, cfg):
+    """Sea temperature change from ocean currents, spread onto nearby land.
+
+    Ocean gyres push warm water poleward along the *west* side of each ocean (the east
+    coasts of continents) and cold water toward the equator along the *east* side (the
+    west coasts of continents) in the subtropics. Further poleward the pattern flips:
+    warm drift reaches the west coasts of continents (Western Europe) while cold water
+    runs down east coasts (Labrador).
+
+    Returns (temperature change in C, cold-coast dryness 0..1).
+    """
+    lat = grid.lat
+    kpp = grid.km_per_px
+    px_km = kpp * np.maximum(np.cos(np.radians(lat[:, 0])), 0.05)
+    land_east = np.exp(-_row_distance_to_land(ocean, px_km, True) / 2000)   # sea off a west coast
+    land_west = np.exp(-_row_distance_to_land(ocean, px_km, False) / 2000)  # sea off an east coast
+    alat = np.abs(lat)
+    sub = np.exp(-((alat - 25) / 12) ** 2)
+    high = np.exp(-((alat - 55) / 12) ** 2)
+    sea_change = cfg.ocean_currents * (4 * sub * (land_west - land_east) + 7 * high * (land_east - land_west))
+    sea_change = np.where(ocean, sea_change, 0.0)
+
+    # Spread onto land: average of the nearby sea, fading over a few hundred km inland.
+    sigma = 300 / kpp
+    weight = blur(ocean.astype(float), sigma)
+    nearby_sea = blur(sea_change, sigma) / np.maximum(weight, 1e-6)
+    inland_km = distance_to(ocean)[0] * kpp if ocean.any() else np.full(ocean.shape, 1e9)
+    change = np.where(ocean, blur(sea_change, 150 / kpp) / np.maximum(blur(ocean.astype(float), 150 / kpp), 1e-6),
+                      nearby_sea * np.exp(-inland_km / 600))
+    change = np.where(weight > 1e-3, change, 0.0)
+    dry = np.clip(-change / 4, 0, 1) * sub
+    return change, dry
+
+
+GROWING_TEMP_C = 5.0        # crops grow in months warmer than this
+GROWING_RAIN_MM = 40.0      # ... and wetter than this (without irrigation)
+
+
+def _seasons(cfg, lat, wobbly_lat, subtropics, temperature, precip, wind):
+    """Summer/winter temperatures, wet/dry seasons and the growing season.
+
+    Temperature swing grows toward the poles and away from the sea (continental
+    climates: Siberia swings far more than Britain at the same latitude). Rain is
+    seasonal in the tropical wet/dry belt (savannas), in monsoon lands (summer rain)
+    and on Mediterranean-type coasts (winter rain, dry summers).
+    """
+    sin_lat = np.sin(np.radians(np.abs(lat)))
+    continental = np.clip(1 - wind["moisture"], 0, 1)
+    swing = (1 + 9 * sin_lat ** 1.5) * (1 + 1.8 * continental * np.sqrt(sin_lat)) * cfg.seasonality
+    warmest = temperature + swing
+    coldest = temperature - swing
+
+    tropical_wet_dry = 0.75 * np.exp(-((wobbly_lat - 14) / 8) ** 2)
+    monsoon = 0.6 * subtropics * wind["monsoon"]
+    mediterranean = (0.55 * np.exp(-((wobbly_lat - 36) / 6) ** 2) * (1 - wind["monsoon"])
+                     * np.clip(wind["moisture"] * 1.5, 0, 1))
+    seasonality = np.clip(tropical_wet_dry + monsoon + mediterranean, 0, 0.9)
+    wettest = precip * (0.5 + 0.5 * seasonality) / 6
+    driest = precip * (0.5 - 0.5 * seasonality) / 6
+
+    # Months warm enough: temperature follows a yearly cosine between coldest and warmest.
+    warm_months = 12 * np.arccos(np.clip((GROWING_TEMP_C - temperature) / np.maximum(swing, 1e-6), -1, 1)) / np.pi
+    # Months wet enough: half the year at the wet-season rate, half at the dry-season rate.
+    wet_months = (6 * np.clip((wettest - GROWING_RAIN_MM / 2) / GROWING_RAIN_MM, 0, 1)
+                  + 6 * np.clip((driest - GROWING_RAIN_MM / 2) / GROWING_RAIN_MM, 0, 1))
+    # Where the rain comes in winter (Mediterranean), warm and wet months overlap less.
+    growing = np.clip(np.minimum(warm_months, wet_months) - 4 * mediterranean, 0, 12)
+    return dict(warmest_month_c=warmest, coldest_month_c=coldest, wettest_month_mm=wettest,
+                driest_month_mm=driest, rain_seasonality=seasonality, warm_months=warm_months,
+                growing_months=growing)
 
 
 def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
@@ -937,8 +1171,10 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     sea, land_scale, depth_scale = _elevation_scale(terrain.raw, cos_lat, cfg)
     elevation_m, ocean = _to_metres(terrain.raw, sea, land_scale, depth_scale, cfg)
     elevation_m, ocean = _remove_small_seas(elevation_m, ocean, cos_lat, cfg)
-    temperature, precip, biome, wind = _climate(cfg, grid, elevation_m, ocean)
+    temperature, precip, biome, wind, seasons = _climate(cfg, grid, elevation_m, ocean)
 
+    # Rivers carve valleys; then drainage is worked out again on the carved land.
+    elevation_m = erode(elevation_m, ocean, ocean, precip, temperature, grid, cfg)
     # Drainage: which way water flows from every pixel, and how full each basin can get.
     filled, receiver, order = hydrology.priority_flood(elevation_m, ocean)
     if cfg.lakes:
@@ -960,15 +1196,67 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     major = int(np.sum(landmass_area >= 0.01))   # >= 1% of the globe, about Australia-sized
     islands = int(np.sum((landmass_area > 0) & (landmass_area < 0.01)))
     lake_count = label_wrapped(lake)[1]
-    return World(terrain=terrain, cfg=cfg, elevation_m=elevation_m, ocean=ocean,
-                 temperature_c=temperature, precip_mm=precip, biome=biome,
-                 landmass_id=landmass_id, landmass_area=landmass_area,
-                 major_landmasses=major, islands=islands,
-                 lake=lake, salt_flat=salt_flat, filled_elevation_m=filled, lakes=lake_count,
-                 receiver=receiver, discharge_m3s=discharge, river=river,
-                 catchment_km2=catchment, stream=stream, grid=grid,
-                 sea_raw=sea, land_scale=land_scale, depth_scale=depth_scale, wind=wind,
-                 lake_level_m=lake_level, closed=closed)
+    world = World(terrain=terrain, cfg=cfg, elevation_m=elevation_m, ocean=ocean,
+                  temperature_c=temperature, precip_mm=precip, biome=biome,
+                  landmass_id=landmass_id, landmass_area=landmass_area,
+                  major_landmasses=major, islands=islands,
+                  lake=lake, salt_flat=salt_flat, filled_elevation_m=filled, lakes=lake_count,
+                  receiver=receiver, discharge_m3s=discharge, river=river,
+                  catchment_km2=catchment, stream=stream, grid=grid,
+                  sea_raw=sea, land_scale=land_scale, depth_scale=depth_scale, wind=wind,
+                  lake_level_m=lake_level, closed=closed)
+    finish_world(world, seasons, terrain.env)
+    return world
+
+
+def erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow=None):
+    """Carve river valleys, deeper and wider for bigger rivers.
+
+    A quick stand-in for millions of years of erosion: a first drainage pass finds the
+    rivers, then the land along them is lowered in proportion to flow (and never below
+    sea level). Rivers cutting down through basin rims also drain many would-be lakes.
+    `outlet` is where water leaves the map (the sea, plus a region's edges).
+    """
+    if cfg.erosion <= 0:
+        return elevation_m
+    _, receiver, order = hydrology.priority_flood(elevation_m, outlet)
+    none = np.zeros(ocean.shape, bool)
+    flow, catchment = _rivers(receiver, order, outlet, none, precip, temperature, grid, cfg, inflow)
+    channel = (catchment >= cfg.river_min_catchment_km2) & ~ocean
+    height = np.maximum(elevation_m, 0)
+    depth = np.where(channel, cfg.erosion * 18 * np.maximum(flow, 0) ** 0.33, 0.0)
+    depth = np.minimum(depth, 0.5 * height)
+    valley = np.maximum(depth, 1.6 * blur(depth, cfg.valley_width_km / grid.km_per_px, grid.wraps))
+    valley = np.minimum(valley, 0.6 * height)
+    carved = np.maximum(elevation_m - valley, np.minimum(elevation_m, 2.0))
+    return np.where(ocean, elevation_m, carved)
+
+
+def finish_world(world, seasons, env):
+    """Add seasons, rivers along cell edges, and land facts (for worlds and regions alike)."""
+    from .land import land_fields  # land.py imports from this module
+
+    cfg, grid = world.cfg, world.grid
+    for name, value in seasons.items():
+        setattr(world, name, value)
+    # Rivers big enough to matter run along cell edges; water rises to its filled level.
+    channel = world.stream & (world.discharge_m3s >= cfg.river_detail_min_m3s)
+    surface = np.where(world.ocean, 0.0, world.filled_elevation_m)
+    paths, edges = hydrology.river_network(
+        world.discharge_m3s, world.receiver, channel, world.ocean | world.lake, surface,
+        seasons["rain_seasonality"], grid.lat, grid.km_per_px, grid.wraps)
+    world.river_paths = paths
+    for name, value in edges.items():
+        setattr(world, name, value)
+    fields = land_fields(cfg, grid, world.elevation_m, world.ocean, world.lake, world.salt_flat,
+                         world.biome, world.temperature_c, world.precip_mm, seasons,
+                         hydrology.cell_river_flow(world), env["volcanic"], env["ore"])
+    for name, value in fields.items():
+        setattr(world, name, value)
+    # Waterlogged ground becomes wetland (marsh, swamp or bog), unless it's ice or bare rock.
+    keep = np.isin(world.biome, [BIOME_ID[n] for n in ("Ice sheet", "Glacier", "Salt flat", "Lake",
+                                                       "Alpine", "Deep ocean", "Shallow sea", "Sea ice")])
+    world.biome[(world.wetland >= cfg.wetland_threshold) & ~keep] = BIOME_ID["Wetland"]
 
 
 def _classify(elev, ocean, t, p):

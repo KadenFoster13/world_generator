@@ -20,7 +20,7 @@ from scipy.ndimage import label, maximum_filter
 from . import hydrology
 from .generator import (BIOME_ID, Grid, Terrain, World, _apply_archipelagos, _climate,
                       _piece_map, _plate_boundaries, _rivers, _synthesize, _to_metres,
-                      detail_octaves, fill_pockets)
+                      detail_octaves, erode, fill_pockets, finish_world)
 
 MAX_REGION_PX = 1600         # widest a region can be, in its own pixels
 FACTORS = (8, 4, 2)          # how many times finer than the world map
@@ -82,13 +82,20 @@ def generate_region(world: World, box: RegionBox) -> World:
     raw = _synthesize(cfg, grid, extra, env, t.noises, t.hot_stamps)
     if t.arch_stamps:
         raw = _apply_archipelagos(raw, cfg, grid, t.arch_stamps, sample(t.arch_dist), t.arch_sea,
-                                  t.noises["arch"], extra)
+                                  t.noises["arch"], extra, t.noises.get("arch_fine"))
     elevation_m, ocean = _to_metres(raw, world.sea_raw, world.land_scale, world.depth_scale, cfg)
     elevation_m, ocean = _keep_real_sea(elevation_m, ocean, nearest(world.ocean), grid)
 
     # --- climate, with the world's winds
     wind = {name: sample(field) for name, field in world.wind.items()}
-    temperature, precip, biome, _ = _climate(cfg, grid, elevation_m, ocean, wind)
+    temperature, precip, biome, _, seasons = _climate(cfg, grid, elevation_m, ocean, wind)
+
+    # --- rivers carve valleys (rivers flowing in from outside count too)
+    edge = np.zeros(ocean.shape, bool)
+    edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
+    outlet = ocean | edge
+    inflow = _inflow(world, box, grid)
+    elevation_m = erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow)
 
     # --- lakes: the world's water levels on the finer terrain
     level = world.lake_level_m
@@ -101,11 +108,7 @@ def generate_region(world: World, box: RegionBox) -> World:
     closed = nearest(world.closed) & ~ocean
 
     # --- rivers: drain to the sea or off the region's edge; add rivers flowing in
-    edge = np.zeros(ocean.shape, bool)
-    edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
-    outlet = ocean | edge
     filled, receiver, order = hydrology.priority_flood(elevation_m, outlet)
-    inflow = _inflow(world, box, grid)
     discharge, catchment = _rivers(receiver, order, outlet, closed, precip, temperature,
                                    grid, cfg, inflow=inflow)
     stream = (catchment >= cfg.river_min_catchment_km2) & ~ocean & ~lake
@@ -135,6 +138,7 @@ def generate_region(world: World, box: RegionBox) -> World:
                    depth_scale=world.depth_scale, wind=wind,
                    lake_level_m=np.where(lake, lake_level, np.nan), closed=closed)
     region.box = box
+    finish_world(region, seasons, env)
     return region
 
 

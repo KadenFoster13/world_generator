@@ -4,3 +4,4 @@ renders/
 *.egg-info/
 build/
 dist/
+world_cache/

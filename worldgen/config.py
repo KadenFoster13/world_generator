@@ -31,6 +31,7 @@ class WorldConfig:
     hotspots: int = 4                    # volcanic island chains in open ocean (like Hawaii)
     archipelagos: bool = True            # island chains with a few big islands off continental coasts
     archipelago_coast_gap_km: float = 300.0  # open sea kept between archipelago islands and the mainland
+    island_warp_km: float = 75.0          # how much archipelago island shapes are bent (0 = plain ovals)
     archipelago_count: int = 5          # how many of those chains (when archipelagos is on)
 
     # ------------------------------------------------------ plate tectonics
@@ -63,6 +64,10 @@ class WorldConfig:
     river_detail_min_m3s: float = 75.0   # smallest river shown when fully zoomed in
     river_min_catchment_km2: float = 20000.0  # land that must drain into a point before it's a river
     evaporation_per_degree_mm: float = 55.0 # yearly evaporation per degree C above 0 (drier = fewer rivers)
+    erosion: float = 0.7                 # how deeply rivers carve their valleys (0 = none, and more lakes survive)
+    valley_width_km: float = 40.0        # how wide carved valleys spread
+    wetland_threshold: float = 0.38      # wetness score (0..1) at which land becomes wetland
+    delta_min_flow_m3s: float = 5000.0   # rivers this big fan into deltas at the sea (enhanced regions)
 
     # -------------------------------------------------------------- climate
     equator_temp_c: float = 28.0         # mean annual temperature at sea level on the equator
@@ -75,6 +80,16 @@ class WorldConfig:
     monsoon_strength: float = 0.45       # extra rain on subtropical east coasts (share of max_precip_mm)
     monsoon_reach_km: float = 1400.0     # how far inland that monsoon rain gets
     rain_shadow: float = 0.35            # moisture lost per km of climb over mountains
+    seasonality: float = 1.0             # scales summer/winter temperature swings (0 = no seasons)
+    ocean_currents: float = 1.0          # strength of warm/cold ocean currents (0 = none)
+    glacier_summer_max_c: float = 1.0    # land whose warmest month stays below this (and snowy) is glacier
+
+    # ------------------------------------------------- rivers as cell edges
+    # Rivers run along the edges between cells, so they can form borders and be crossed.
+    # Width and depth follow typical river shapes: width ~ 7 * sqrt(flow), depth ~ 0.27 * flow^0.39.
+    ford_max_depth_m: float = 1.0        # fordable if dry-season shallows (riffles) are below this depth
+    navigable_min_depth_m: float = 2.0   # navigable by river boats if the average depth is at least this
+    rapids_min_slope_m_per_km: float = 1.5  # steeper river stretches have rapids (block boats)
 
     # --------------------------------------------------------------- viewer
     biome_blend: float = 1.0             # px on screen; softens borders between biomes (0 = hard edges)

@@ -7,6 +7,8 @@ import heapq
 
 import numpy as np
 
+from . import _fast
+
 EARTH_RADIUS_M = 6_371_000
 SECONDS_PER_YEAR = 31_557_600
 _OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
@@ -48,6 +50,11 @@ def priority_flood(elevation_m, ocean):
             nb[0] = False
         touches_land |= nb
     seeds = np.flatnonzero(ocean & touches_land)
+    if _fast.HAVE_NUMBA and len(seeds):
+        filled, receiver, order = _fast.flood_kernel(
+            elevation_m.ravel().astype(np.float64), seeds.astype(np.int64),
+            ocean.ravel().astype(np.uint8), h, w)
+        return filled.reshape(h, w), receiver, order
     heap = [(z[i], z[i], int(i)) for i in seeds]
     heapq.heapify(heap)
 
@@ -88,6 +95,11 @@ def runoff_mm(precip_mm, temperature_c, cfg):
 
 def accumulate(local_flow, receiver, order, passes):
     """Sum flow downstream. `passes[i]` False means water at i goes no further (it evaporates)."""
+    if _fast.HAVE_NUMBA:
+        flow = _fast.accumulate_kernel(local_flow.ravel().astype(np.float64).copy(),
+                                       receiver.astype(np.int64), order.astype(np.int64),
+                                       passes.ravel().astype(np.bool_))
+        return flow.reshape(local_flow.shape)
     flow = local_flow.ravel().astype(float).tolist()
     recv = receiver.tolist()
     ok = passes.ravel().tolist()
@@ -98,65 +110,197 @@ def accumulate(local_flow, receiver, order, passes):
     return np.array(flow).reshape(local_flow.shape)
 
 
-def river_paths(discharge, receiver, river, stop, width, smooth=2):
-    """Turn river pixels into smooth polylines for drawing.
+def corner_grid(values, wraps=True, how="mean"):
+    """Values at cell corners. Corner (r, c) is the top-left corner of cell (r, c), shared by
+    cells (r-1, c-1), (r-1, c), (r, c-1) and (r, c) (fewer at the map's edges)."""
+    left = np.roll(values, 1, axis=1) if wraps else np.concatenate([values[:, :1], values[:, :-1]], axis=1)
+    if how == "any":
+        pair = values | left
+        return pair | np.concatenate([pair[:1], pair[:-1]], axis=0)
+    pair = (values + left) / 2
+    return (pair + np.concatenate([pair[:1], pair[:-1]], axis=0)) / 2
 
-    river  bool mask of pixels that carry a river
-    stop   bool mask where rivers end (ocean, lakes)
-    Returns a list of (xs, ys, flows) arrays in pixel coordinates. x may run past
-    the map edge when a river crosses the east-west seam.
+
+def river_network(discharge, receiver, channel, water, surface_m, seasonality, lat, km_per_px,
+                  wraps=True):
+    """Route rivers along cell edges.
+
+    Each river step between two cells (including diagonal ones) becomes a walk along
+    cell corners; a diagonal step turns at whichever of the two possible corners is
+    lower. Rivers end at the first corner that touches the sea or a lake, and rivers
+    leaving a lake start at the last corner touching it.
+
+    channel     bool: cells whose step to their receiver carries a river
+    water       bool: sea and lakes
+    surface_m   water-surface height (filled terrain, 0 at sea) for river slopes
+    seasonality 0..1 rain seasonality, for dry-season flow
+
+    Returns (paths, edges):
+      paths  list of (rows, cols, flows) corner paths for drawing; cols may run past
+             the map edge where a river crosses the east-west seam
+      edges  dict of (H, W) arrays. "_east" arrays describe the edge between cell (r, c)
+             and (r, c+1), "_south" arrays the edge between (r, c) and (r+1, c):
+             river_flow_*      mean flow, m3/s (0 = no river)
+             river_dry_flow_*  dry-season flow, m3/s
+             river_slope_*     fall along the river, m per km
     """
-    h, w = river.shape
-    rv = river.ravel()
-    st = stop.ravel()
+    h, w = discharge.shape
+    corner_z = corner_grid(surface_m, wraps)
+    wet = corner_grid(water, wraps, how="any").ravel()
+    zc = corner_z.ravel()
+    zs = surface_m.ravel()
     q = discharge.ravel()
-    idx = np.flatnonzero(rv)
+    dry_factor = (1 - 0.8 * seasonality).ravel()
+    ch = channel.ravel()
+    is_water = water.ravel()
+    edges = {f"{name}_{side}": np.zeros((h, w)) for name in ("river_flow", "river_dry_flow", "river_slope")
+             for side in ("east", "south")}
+    cos_row = np.maximum(np.cos(np.radians(lat[:, 0])), 0.05)
+
+    # Cells that carry a river onward: channel cells, and lake cells draining into one.
+    idx = np.flatnonzero(ch)
     donors = np.zeros(h * w, dtype=np.int32)
-    r = receiver[idx]
-    valid = r >= 0
-    np.add.at(donors, r[valid], 1)
-
-    # Lake pixels that drain into a river pixel: the river leaves the lake there.
+    r_idx = receiver[idx]
+    np.add.at(donors, r_idx[r_idx >= 0], 1)
     outlet_of = np.full(h * w, -1, dtype=np.int64)
-    water = np.flatnonzero(st & (receiver >= 0))
-    leaving = water[rv[receiver[water]]]
-    outlet_of[receiver[leaving]] = leaving
+    lakes_out = np.flatnonzero(is_water & (receiver >= 0))
+    lakes_out = lakes_out[ch[receiver[lakes_out]]]
+    outlet_of[receiver[lakes_out]] = lakes_out
 
-    starts = idx[(donors[idx] != 1)]  # river heads and confluences
     paths = []
-    for s in starts.tolist():
-        from_lake = donors[s] == 0 and outlet_of[s] >= 0
-        pts = [int(outlet_of[s]), s] if from_lake else [s]
+    for s in idx[donors[idx] != 1].tolist():          # river heads and confluences
+        cells = [s]
+        if donors[s] == 0 and outlet_of[s] >= 0:      # leaves a lake
+            cells = [int(outlet_of[s]), s]
         cur = s
         while True:
             nxt = int(receiver[cur])
             if nxt < 0:
                 break
-            pts.append(nxt)
-            if st[nxt] or not rv[nxt] or donors[nxt] != 1:
+            cells.append(nxt)
+            if is_water[nxt] or not ch[nxt] or donors[nxt] != 1:
                 break
             cur = nxt
-        if len(pts) < 2:
+        if len(cells) < 2:
             continue
-        ys, xs = np.divmod(np.array(pts), w)
-        xs = xs.astype(float)
-        # Unwrap across the seam so the line stays continuous.
-        steps = (np.diff(xs) + w / 2) % w - w / 2
-        xs = np.concatenate([[xs[0]], xs[0] + np.cumsum(steps)])
-        ys = ys.astype(float)
-        flows = q[pts].astype(float)
-        # Meet the water exactly at the shoreline: the edge between the last land pixel
-        # and the lake or sea (instead of running on to the water pixel's centre), and
-        # likewise start lake outlets at the lake's edge.
-        if st[pts[-1]]:
-            xs[-1], ys[-1] = (xs[-1] + xs[-2]) / 2, (ys[-1] + ys[-2]) / 2
-            flows[-1] = flows[-2]
-        if from_lake and len(pts) > 2:
-            xs[0], ys[0] = (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2
-            flows[0] = flows[1]
-        xs, ys, flows = _chaikin(xs, ys, flows, smooth)
-        paths.append((xs, ys, flows))
-    return paths
+        # Walk the corners. Each corner keeps the flow (and slope) of the cell step that
+        # reached it. Slope is measured between the river's own cells, not the corners,
+        # whose heights also average in the hillsides beside the river.
+        corners = [cells[0]]
+        flows = [q[cells[1]] if is_water[cells[0]] else q[cells[0]]]
+        slopes = [0.0]
+        for a, b in zip(cells[:-1], cells[1:]):
+            ra, ca = divmod(a, w)
+            rb, cb = divmod(b, w)
+            dc = cb - ca
+            if wraps:
+                dc = (dc + w // 2) % w - w // 2
+            dr = rb - ra
+            step_flow = q[b] if is_water[a] else q[a]
+            step_km = km_per_px * np.hypot(dr, dc * cos_row[ra])
+            step_slope = max(zs[a] - zs[b], 0.0) / max(step_km, 1e-6)
+            if dr and dc:  # diagonal: turn at the lower of the two corners
+                m1 = rb * w + ca
+                m2 = ra * w + (ca + dc) % w
+                corners.append(m1 if zc[m1] <= zc[m2] else m2)
+                flows.append(step_flow)
+                slopes.append(step_slope)
+            corners.append(b)
+            flows.append(step_flow)
+            slopes.append(step_slope)
+        # Trim to the shoreline: start at the last wet corner of a lake outlet,
+        # end at the first wet corner after that.
+        start = 0
+        while start + 1 < len(corners) and wet[corners[start + 1]]:
+            start += 1
+        end = start + 1
+        while end < len(corners) - 1 and not wet[corners[end]]:
+            end += 1
+        corners, flows, slopes = corners[start:end + 1], flows[start:end + 1], slopes[start:end + 1]
+        if len(corners) < 2:
+            continue
+        rows, cols = np.divmod(np.array(corners), w)
+        _record_edges(edges, rows, cols, np.array(flows, float), np.array(slopes, float),
+                      dry_factor, w, wraps)
+        cols = cols.astype(float)
+        if wraps:  # unwrap across the seam so the line stays continuous
+            steps = (np.diff(cols) + w / 2) % w - w / 2
+            cols = np.concatenate([[cols[0]], cols[0] + np.cumsum(steps)])
+        paths.append((rows.astype(float), cols, np.array(flows, float)))
+    return paths, edges
+
+
+def _record_edges(edges, rows, cols, flows, slopes, dry_factor, w, wraps):
+    """Write one corner path's moves into the edge arrays."""
+    h = edges["river_flow_east"].shape[0]
+    for i in range(len(rows) - 1):
+        r0, c0, r1, c1 = rows[i], cols[i], rows[i + 1], cols[i + 1]
+        q, slope = flows[i + 1], slopes[i + 1]
+        if r0 != r1:   # vertical move along column line c0: edge between cells (r, c0-1) and (r, c0)
+            r, c, side = min(r0, r1), c0 - 1, "east"
+        else:          # horizontal move along row line r0: edge between cells (r0-1, c) and (r0, c)
+            dc = c1 - c0
+            if wraps:
+                dc = (dc + w // 2) % w - w // 2
+            r, c, side = r0 - 1, c0 if dc > 0 else c0 - 1, "south"
+        if r < 0 or r >= h:
+            continue
+        if c < 0:
+            if not wraps:
+                continue
+            c %= w
+        if c >= w:
+            if not wraps:
+                continue
+            c %= w
+        cell = (r, c)
+        edges[f"river_flow_{side}"][cell] = max(edges[f"river_flow_{side}"][cell], q)
+        edges[f"river_dry_flow_{side}"][cell] = max(edges[f"river_dry_flow_{side}"][cell],
+                                                     q * dry_factor[r * w + c])
+        edges[f"river_slope_{side}"][cell] = max(edges[f"river_slope_{side}"][cell], slope)
+
+
+def river_width_m(flow):
+    """Typical river width for a flow (m3/s)."""
+    return 7.0 * np.sqrt(np.maximum(flow, 0))
+
+
+def river_depth_m(flow):
+    """Typical river depth for a flow (m3/s)."""
+    return 0.27 * np.maximum(flow, 0) ** 0.39
+
+
+def edge_properties(world, side):
+    """Derived river facts for every edge on one side ("east" or "south") of each cell.
+
+    Returns a dict of arrays: flow, dry_flow, width_m, depth_m, dry_depth_m, slope_m_per_km,
+    river (bool), fordable (shallow enough to wade in the dry season), navigable (deep
+    enough for river boats, and no rapids) and rapids.
+    """
+    cfg = world.cfg
+    flow = getattr(world, f"river_flow_{side}")
+    dry = getattr(world, f"river_dry_flow_{side}")
+    slope = getattr(world, f"river_slope_{side}")
+    river = flow > 0
+    depth = river_depth_m(flow)
+    dry_depth = river_depth_m(dry)
+    rapids = river & (slope >= cfg.rapids_min_slope_m_per_km)
+    return dict(flow=flow, dry_flow=dry, width_m=np.where(river, river_width_m(flow), 0.0),
+                depth_m=np.where(river, depth, 0.0), dry_depth_m=np.where(river, dry_depth, 0.0),
+                slope_m_per_km=slope, river=river,
+                # Fords are at riffles, where the river runs about half its typical depth.
+                fordable=river & (0.5 * dry_depth < cfg.ford_max_depth_m),
+                navigable=river & (depth >= cfg.navigable_min_depth_m) & ~rapids,
+                rapids=rapids)
+
+
+def cell_river_flow(world):
+    """Largest river flow along any of each cell's four edges (0 = no river touches it)."""
+    e, s = world.river_flow_east, world.river_flow_south
+    wraps = world.grid.wraps
+    west = np.roll(e, 1, axis=1) if wraps else np.concatenate([np.zeros_like(e[:, :1]), e[:, :-1]], axis=1)
+    north = np.concatenate([np.zeros_like(s[:1]), s[:-1]], axis=0)
+    return np.maximum.reduce([e, west, s, north])
 
 
 def _chaikin(xs, ys, vals, iterations):
