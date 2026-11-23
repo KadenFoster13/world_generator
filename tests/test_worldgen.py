@@ -61,9 +61,12 @@ class GenerationTests(unittest.TestCase):
             swing = w.warmest_month_c - w.coldest_month_c
             self.assertLess(swing[tropics].mean(), swing[poles].mean())
         self.assertTrue(((w.growing_months >= 0) & (w.growing_months <= 12)).all())
-        for name in ("soil_fertility", "arable", "fresh_water", "timber", "ore", "harbour"):
+        for name in ("soil_fertility", "arable", "fresh_water", "timber", "ore", "harbour",
+                     "floodplain", "irrigable"):
             v = getattr(w, name)
             self.assertTrue(((v >= 0) & (v <= 1)).all(), name)
+        self.assertTrue((w.irrigable >= w.floodplain).all())       # floodplains are irrigable too
+        self.assertEqual(w.floodplain[w.ocean].max(), 0)
         self.assertTrue(np.isinf(w.movement_cost[w.ocean]).all())
 
     def test_currents_wetlands_ice(self):
@@ -104,6 +107,15 @@ class GenerationTests(unittest.TestCase):
             v = getattr(w, m)
             self.assertTrue(((v >= 0) & (v <= 1)).all(), m)
         self.assertTrue(w.glacial_land[~w.ocean].sum() == 0)  # only today's sea can be ice-age land
+
+    def test_wildlife_same_at_any_width(self):
+        # Homelands are picked on a fixed coarse grid, so ranges barely move with width.
+        big = generate_world(WorldConfig(seed=7, width=800)).species_native
+        big = big.reshape(big.shape[0], big.shape[1] // 2, 2, big.shape[2] // 2, 2).mean(axis=(2, 4)) >= 0.5
+        small = self.world.species_native
+        both, either = (small & big).sum(axis=(1, 2)), (small | big).sum(axis=(1, 2))
+        present = either >= 20
+        self.assertGreater(np.median(both[present] / either[present]), 0.7)
 
     def test_climate_history(self):
         from worldgen import ClimateHistory, sea_level_m

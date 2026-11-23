@@ -178,6 +178,8 @@ class World:
     soil_fertility: np.ndarray = None
     arable: np.ndarray = None
     fresh_water: np.ndarray = None
+    floodplain: np.ndarray = None   # (1.4) flat land a big river floods each year, 0..1
+    irrigable: np.ndarray = None    # (1.4) land canals could water from a river or lake, 0..1
     timber: np.ndarray = None
     ore: np.ndarray = None
     salt: np.ndarray = None

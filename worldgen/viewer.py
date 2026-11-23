@@ -222,7 +222,7 @@ class Viewer:
                          labelspacing=0.25, columnspacing=0.6, handlelength=1.2, borderaxespad=0)
 
         y = top - 2.05
-        layer_h = 0.235 * len(LAYERS)
+        layer_h = 2.585 * min(1.0, len(LAYERS) / 11)   # the panel has room for 11 rows at 0.235 in
         radio_ax = self._axes(x, y - layer_h, 2.4, layer_h)
         radio_ax.set_title("Layer", fontsize=11, loc="left", weight="bold")
         self.radio = RadioButtons(radio_ax, LAYERS, active=0,

@@ -17,7 +17,8 @@ planet (an equirectangular map that wraps east–west) built from simple physics
   discharge in m³/s, through lakes and out to sea, and carve their own valleys. Rivers run along the *edges* between
   cells, with width, depth, fords, navigability and rapids, so they can be borders.
 - **Land use**: soil fertility, farmland, fresh water, timber, ore, salt, fishing,
-  natural harbours, distance to the coast and the effort to cross each cell.
+  natural harbours, distance to the coast and the effort to cross each cell; floodplains
+  (farmable on the yearly flood, even in desert) and land canals could irrigate.
 - **Nature for history**: wild crops and animals with native homelands (not every
   continent gets horses or easy grains), copper, tin, iron, gold, silver, coal, oil and
   saltpeter deposits, malaria and tsetse zones, sailing winds and currents, ice-age land
@@ -61,7 +62,7 @@ python -m worldgen --seed 42 --width 1600
 | Resolution 800 / 1600 / 2400 | Same world, sharper (about 2 s / 9 s / 30 s per seed) |
 | Enhance, `E` / Clear, `C` | Regenerate the zoomed-in area in more detail / remove it |
 | Auto, `A` | Auto-Enhance on/off: once you stop moving, a zoomed-in view (about 3x or closer at 800 px) is enhanced at 2x by itself in 0.1-1 s; recent areas are remembered (setting remembered) |
-| Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, movement, rivers & harbours, wild species, minerals |
+| Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, irrigation (floodplain and canal-irrigable land), movement, rivers & harbours, wild species, minerals |
 | Options | Coastal archipelagos, lakes, rivers on/off |
 | `S` | Save the current map as a PNG in `renders/` |
 | `X` | Export the world's data (and any enhanced region) as `.npz` in `renders/` |

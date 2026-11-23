@@ -131,6 +131,12 @@ def species_native(world, suitability):
     lm, area = world.landmass_id, world.landmass_area
     out = np.zeros(suitability.shape, bool)
     coarse = _CoarseGrid(world)
+    # Homelands are chosen on the coarse grid (the same grid at every map width), and each
+    # landmass's random draws come from one of its own coarse cells (the one with the
+    # lowest of a fixed random number per cell), so a world's wildlife is the same
+    # whatever its width.
+    lm_c = coarse.sample(lm)
+    big = [k for k in np.flatnonzero(area >= 0.0004) if k != 0]
     # Ragged, patchy edges: how far each species gets, and how poor a habitat it will put
     # up with, both vary from place to place. One shared pair of noise maps, shifted
     # east-west by a different amount for each species, is plenty.
@@ -138,25 +144,32 @@ def species_native(world, suitability):
     edge_noise = (fbm(Perlin3(edge_seed + 2), world.grid.xyz, 10, 3),
                   fbm(Perlin3(edge_seed + 3), world.grid.xyz, 16, 2))
     for i, sp in enumerate(SPECIES):
-        sp_rng = np.random.default_rng(rng.integers(2 ** 63))   # fixed draws per species
+        sp_seed = int(rng.integers(2 ** 63))                     # fixed draws per species
+        sp_rng = np.random.default_rng(sp_seed)
         suit = suitability[i]
-        homes = np.zeros(lm.shape, bool)
-        for land_id in np.argsort(-area)[:40]:                   # the 40 largest landmasses
+        suit_c = coarse._down(suit)
+        homes = np.zeros(coarse.shape, bool)
+        marks = sp_rng.random(coarse.shape).ravel()
+        tickets = sp_rng.random((max(sp.homelands),) + marks.shape)   # fixed per cell, per homeland
+        for land_id in big:
             a = area[land_id]
-            roll = sp_rng.random()
-            n_homes = int(sp_rng.integers(sp.homelands[0], sp.homelands[1] + 1))
-            picks = sp_rng.random(n_homes)
-            if land_id == 0 or a < 0.0004:
+            own = np.flatnonzero(lm_c.ravel() == land_id)
+            if len(own) == 0:
                 continue
+            anchor = int(own[np.argmin(marks[own])])
+            roll = 1 - (1 - marks[anchor]) ** len(own)          # the lowest of n: uniform again
+            land_rng = np.random.default_rng((sp_seed, anchor))
+            n_homes = int(land_rng.integers(sp.homelands[0], sp.homelands[1] + 1))
             if roll > sp.chance * np.clip(np.sqrt(a / 0.01), 0.25, 1.0):
                 continue
-            cells = np.flatnonzero((lm == land_id).ravel() & (suit.ravel() >= 0.6))
+            cells = np.flatnonzero((lm_c == land_id).ravel() & (suit_c.ravel() >= 0.6))
             if len(cells) == 0:
                 continue
-            weights = suit.ravel()[cells] / suit.ravel()[cells].sum()
-            cumulative = np.cumsum(weights)
-            for p in picks:
-                homes.ravel()[cells[min(np.searchsorted(cumulative, p), len(cells) - 1)]] = True
+            # A pick weighted by suitability that small changes in suitability hardly move:
+            # the cell with the highest ticket ** (1 / suitability).
+            weight = suit_c.ravel()[cells]
+            for k in range(n_homes):
+                homes.ravel()[cells[np.argmax(np.log(tickets[k][cells]) / weight)]] = True
         if not homes.any():
             continue
         noise_seed = world.cfg.seed * 7919 + 515151 + i * 104729
@@ -195,11 +208,17 @@ class _CoarseGrid:
         h, w = self.shape
         return a[:h * f, :w * f].reshape(h, f, w, f).mean(axis=(1, 3))
 
+    def sample(self, a):
+        """One full-resolution value per coarse cell (its first sub-cell)."""
+        h, w = self.shape
+        return a[:h * self.f:self.f, :w * self.f:self.f]
+
     def spread(self, homes, suit, noise_seed, reach_km):
-        """Effort (km-equivalents) to reach each full-resolution cell from the homelands."""
+        """Effort (km-equivalents) to reach each full-resolution cell from the homelands
+        (`homes`: a bool array on the coarse grid)."""
         from .generator import shift
 
-        homes_c = self._down(homes.astype(np.float32)) > 0
+        homes_c = homes                                   # already on the coarse grid
         suit_c = self._down(suit)
         # Random difficulty at two scales: broad (~1000 km) and local (~300 km), so even
         # uniform habitat gets ragged edges, lobes and gaps.

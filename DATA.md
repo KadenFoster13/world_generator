@@ -41,6 +41,8 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope) |
 | `arable` | 0..1 | suitability for farming (fertility, slope, growing season, water) |
 | `fresh_water` | 0..1 | access to fresh water (rivers, lakes, rainfall) |
+| `floodplain` | 0..1 | flat land a big river floods every year: farmable on the receding flood without rain or canals (1.4) |
+| `irrigable` | 0..1 | land canals could water from a river or lake; includes floodplain (1.4) |
 | `timber` | 0..1 | usable wood |
 | `ore` | 0..1 | likelihood of metal ores (mountain belts, active or ancient) |
 | `salt` | 0..1 | salt from dry lake beds and coastal salt pans |
@@ -51,7 +53,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `wetland` | 0..1 | waterlogged ground (marsh, swamp, bog); cells above wetland_threshold get the Wetland biome |
 | `permafrost` | 0..1 | permanently frozen ground (0 = none, 1 = deep continuous permafrost) |
 | `species_suitability` | 0..1 (species, rows, cols) | how well each wild species in metadata['species'] could live in the cell |
-| `species_native` | bool (species, rows, cols) | the species lives wild here at the start of history (year 0) |
+| `species_native` | bool (species, rows, cols) | the species lives wild here at the start of history (year 0); the same ranges at any map width |
 | `copper` | 0..1 | copper deposits (mountain belts, volcanic arcs) |
 | `tin` | 0..1 | tin deposits (rare; old and active mountain belts) |
 | `iron` | 0..1 | iron ore (common; also bog iron in wetlands) |

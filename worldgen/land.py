@@ -87,6 +87,20 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
     fertility = fertility * np.clip(1 - slope / 80, 0.1, 1)
     fertility = np.where(land & ~salt_flat & (temperature > -10), np.clip(fertility, 0, 1), 0.0)
 
+    # --- river water for farming
+    # Floodplain: flat land a big river floods every year, leaving water and silt behind
+    # (crops grow on the receding flood with no canals at all, as along the Nile).
+    flood_flow = np.clip(np.log10(np.maximum(river_flow, 1) / 300) / 1.5, 0, 1)   # 300 -> 0, ~10,000 m3/s -> 1
+    floodplain = np.where(land & ~salt_flat, flood_flow * np.clip(1 - slope / 6, 0, 1)
+                          * np.clip(1 - np.maximum(elevation_m, 0) / 1500, 0, 1), 0.0)
+    # Irrigable: land canals could water from a river or lake (gentle slopes near water;
+    # canals reach a few tens of km, so it spreads a little on detailed maps).
+    source = np.maximum(np.clip(np.log10(1 + river_flow) / 3, 0, 1), np.where(near_lake, 0.6, 0.0))
+    reach = blur(source, 15 / kpp, grid.wraps) if 15 / kpp >= 0.5 else source
+    irrigable = np.where(land & ~salt_flat & (temperature > 0),
+                         np.maximum(source, reach) * np.clip(1 - slope / 15, 0, 1), 0.0)
+    irrigable = np.maximum(irrigable, floodplain)
+
     # --- arable share: fertile, flat enough, long enough growing season, enough water
     growing = seasons["growing_months"]
     irrigation = np.maximum(np.clip(precip / 700, 0, 1), np.clip(np.log10(1 + river_flow) / 3, 0, 1))
@@ -123,6 +137,7 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
     movement = np.where(water, np.inf, movement)
 
     return dict(slope_m_per_km=slope, soil_fertility=fertility, arable=arable, fresh_water=fresh,
+                floodplain=floodplain, irrigable=irrigable,
                 timber=timber, ore=ore, salt=salt, fish=fish, coastal=coastal,
                 dist_to_coast_km=dist_to_coast, harbour=harbour, movement_cost=movement,
                 wetland=wetland, permafrost=permafrost)

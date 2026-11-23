@@ -5,7 +5,8 @@ from matplotlib import colormaps
 from .generator import BIOMES, BIOME_ID, World, blur
 
 LAYERS = ["Biomes", "Elevation", "Plates", "Temperature", "Precipitation",
-          "Growing season", "Farmland", "Movement", "Rivers & harbours", "Wild species", "Minerals"]
+          "Growing season", "Farmland", "Irrigation", "Movement", "Rivers & harbours", "Wild species",
+          "Minerals"]
 MINERAL_COLOURS = {  # strongest mineral in each cell on the Minerals layer
     "copper": (0.85, 0.45, 0.15), "tin": (0.55, 0.75, 0.95), "iron": (0.55, 0.15, 0.1),
     "gold": (1.0, 0.85, 0.1), "silver": (0.85, 0.85, 0.9), "coal": (0.1, 0.1, 0.1),
@@ -93,6 +94,14 @@ def render(world: World, layer: str = "Biomes") -> np.ndarray:
         img = colormaps["RdYlGn"](0.05 + 0.9 * np.clip(world.arable, 0, 1))[..., :3]  # red poor, green good
         return _with_water(img * shade, world, water)
 
+    if layer == "Irrigation":       # floodplain (deep green) and land canals could water (pale green)
+        img = np.ones(world.elevation_m.shape + (3,)) * np.array([0.93, 0.9, 0.84])
+        canal = np.clip(world.irrigable, 0, 1)[..., None]
+        flood = np.clip(world.floodplain, 0, 1)[..., None]
+        img = img * (1 - canal) + np.array([0.62, 0.84, 0.55]) * canal
+        img = img * (1 - flood) + np.array([0.05, 0.5, 0.25]) * flood
+        return _with_water(img * shade, world, water)
+
     if layer == "Movement":         # effort to cross on foot: light = easy, dark = hard
         cost = np.log(np.where(water, 1.0, world.movement_cost)) / np.log(20)
         img = colormaps["magma_r"](0.05 + 0.85 * np.clip(cost, 0, 1))[..., :3]
@@ -148,7 +157,8 @@ def _with_water(img, world, water):
 
 # --------------------------------------------------------------------- rivers
 RIVER_COLOUR = (0.24, 0.47, 0.78)
-RIVER_LAYERS = ("Biomes", "Elevation", "Growing season", "Farmland", "Movement", "Rivers & harbours")
+RIVER_LAYERS = ("Biomes", "Elevation", "Growing season", "Farmland", "Irrigation", "Movement",
+                "Rivers & harbours")
 
 
 def _river_network(world: World):
