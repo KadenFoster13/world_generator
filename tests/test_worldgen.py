@@ -145,6 +145,33 @@ class GenerationTests(unittest.TestCase):
         self.assertIsNotNone(region.growing_months)
         self.assertIsNotNone(region.river_flow_east)
 
+    def test_region_keeps_big_rivers(self):
+        # Enhanced rivers follow the world's courses, wherever the region's edges fall.
+        from scipy.ndimage import maximum_filter
+        from worldgen.region import box_for_view
+        w = self.world
+        land = ~(w.ocean | w.lake)
+        kept = []
+        # Views with a big river close to their edge (where routing used to leak out).
+        for x0, cy, half in ((301, 190, 8), (276, 184, 12), (328, 188, 12), (222, 167, 20), (246, 179, 20)):
+            box = box_for_view(w, x0, x0 + 2 * half, max(cy - half * 0.6, 0), min(cy + half * 0.6, 199))
+            f = box.factor
+            region = generate_region(w, box)
+            # Regions don't wrap east-west: no river step jumps across the area.
+            for rows, cols_, _ in region.river_paths:
+                self.assertLessEqual(np.abs(np.diff(cols_)).max(initial=0), 1)
+            q = np.where(region.ocean | region.lake, 0, region.discharge_m3s)
+            q = maximum_filter(q.reshape(box.rows, f, box.cols, f).max(axis=(1, 3)), 3)
+            cols = (box.col0 + np.arange(box.cols)) % w.grid.width
+            part = (slice(box.row0, box.row0 + box.rows), cols)
+            qw = w.discharge_m3s[part]
+            inner = np.zeros(qw.shape, bool)
+            inner[2:-2, 2:-2] = True
+            big = land[part] & inner & (qw > 1000) & ~maximum_filter(~land[part], 3)
+            kept.extend((q[big] / qw[big]).tolist())
+        self.assertGreater(len(kept), 20)
+        self.assertGreater(np.mean(np.array(kept) >= 0.5), 0.9)
+
     def test_export_round_trip(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "world.npz")

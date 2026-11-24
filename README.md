@@ -60,7 +60,7 @@ python -m worldgen --seed 42 --width 1600
 | Reset view, `R` | Zoom back out |
 | Globe / Map, `O` | Switch to a globe view: drag to spin, scroll to zoom (hover still works) |
 | Resolution 800 / 1600 / 2400 | Same world, sharper (about 2 s / 9 s / 30 s per seed) |
-| Enhance, `E` / Clear, `C` | Regenerate the zoomed-in area in more detail / remove it |
+| Enhance, `E` / Clear, `C` | Regenerate the zoomed-in area in more detail (rivers keep the world map's courses) / remove it |
 | Auto, `A` | Auto-Enhance on/off: once you stop moving, a zoomed-in view (about 3x or closer at 800 px) is enhanced at 2x by itself in 0.1-1 s; recent areas are remembered (setting remembered) |
 | Layer | Biomes, elevation, plates, temperature, precipitation, growing season, farmland, irrigation (floodplain and canal-irrigable land), movement, rivers & harbours, wild species, minerals |
 | Options | Coastal archipelagos, lakes, rivers on/off |

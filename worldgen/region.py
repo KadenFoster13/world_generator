@@ -10,7 +10,10 @@ It stays consistent with the world it came from:
 - islands and hotspot volcanoes are redrawn from the world's recorded positions;
 - lakes keep the world's water levels, with shorelines traced on the finer terrain;
 - rivers are recomputed at the finer scale, and rivers flowing in from outside
-  the region enter with the discharge they had on the world map.
+  the region enter with the discharge they had on the world map;
+- the world's rivers keep their courses: water is routed over the finer ground with
+  their channels cut into it, leaves the region only where the world's drainage does,
+  and ends in closed basins where it does on the world map.
 """
 from dataclasses import dataclass
 
@@ -23,6 +26,8 @@ from .generator import (BIOME_ID, Grid, Terrain, World, _apply_archipelagos, _cl
                       detail_octaves, erode, fill_pockets, finish_world)
 
 MAX_REGION_PX = 1600         # widest a region can be, in its own pixels
+CHANNEL_DEPTH_M = 1000.0     # world rivers are cut this deep into the ground water is routed
+                             # over (routing only), so no nearby outlet can draw them away
 FACTORS = (8, 4, 2)          # how many times finer than the world map
 
 
@@ -91,9 +96,7 @@ def generate_region(world: World, box: RegionBox) -> World:
     temperature, precip, biome, _, seasons = _climate(cfg, grid, elevation_m, ocean, wind)
 
     # --- rivers carve valleys (rivers flowing in from outside count too)
-    edge = np.zeros(ocean.shape, bool)
-    edge[0, :] = edge[-1, :] = edge[:, 0] = edge[:, -1] = True
-    outlet = ocean | edge
+    outlet = ocean | _edge_outlets(world, box, grid) | _basin_sinks(world, box, grid)
     inflow = _inflow(world, box, grid)
     elevation_m = erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow)
 
@@ -107,8 +110,12 @@ def generate_region(world: World, box: RegionBox) -> World:
     salt_flat = nearest(world.salt_flat) & ~lake & ~ocean
     closed = nearest(world.closed) & ~ocean
 
-    # --- rivers: drain to the sea or off the region's edge; add rivers flowing in
-    filled, receiver, order = hydrology.priority_flood(elevation_m, outlet)
+    # --- rivers: drain to the sea or off the region's edge; add rivers flowing in.
+    # The world's rivers are burned into the ground the water is routed over, so they keep
+    # their courses (the finer terrain alone can tip a big river into another valley).
+    routed = np.where(ocean, -1e7, _burn_rivers(world, box, grid, elevation_m, ocean))   # sea below any channel
+    _, receiver, order = hydrology.priority_flood(routed, outlet, wraps=False)
+    filled = hydrology.priority_flood(elevation_m, outlet, wraps=False)[0]   # water levels on the real ground
     discharge, catchment = _rivers(receiver, order, outlet, closed, precip, temperature,
                                    grid, cfg, inflow=inflow)
     stream = (catchment >= cfg.river_min_catchment_km2) & ~ocean & ~lake
@@ -191,6 +198,144 @@ def _keep_real_sea(elevation_m, ocean, world_ocean, grid):
     if not pockets.any():
         return elevation_m, ocean
     return fill_pockets(elevation_m, pockets, ~ocean, wraps=False), ocean & ~pockets
+
+
+def _burn_rivers(world, box, grid, elevation_m, ocean):
+    """Region elevation (for routing water only) with a channel cut along every world
+    river inside the region and into it: from each river cell's centre to the centre of
+    the cell it drains to. The channel lies deep below the world's ground and always falls
+    a little from cell to cell downstream, cutting through the rims of basins the world
+    map filled in, so the water keeps the world's course (the finer terrain alone can tip
+    a big river into another valley). The ground shown is not changed."""
+    h, w = world.elevation_m.shape
+    f = box.factor
+    H, W = grid.lat.shape
+    cfg = world.cfg
+    rr = np.arange(max(box.row0 - 1, 0), min(box.row0 + box.rows + 1, h))
+    cols = (box.col0 + np.arange(-1, box.cols + 1)) % w
+    sub = np.ix_(rr, cols)
+    river = (world.discharge_m3s[sub] >= cfg.river_min_discharge_m3s) & ~world.ocean[sub]   # on through lakes
+    ys, xs = np.nonzero(river)
+    if len(ys) == 0:
+        return elevation_m
+    cells = rr[ys] * w + cols[xs]
+    in_set = set(int(c) for c in cells)
+    rec = world.receiver
+    ground = world.elevation_m.ravel()
+    sea = world.ocean.ravel()
+    lake = world.lake.ravel()
+    lake_level = np.nan_to_num(world.lake_level_m.ravel(), nan=0.0) if world.lake_level_m is not None else ground
+    DROP = 0.5                                     # metres per world cell, at least
+
+    def end_level(c):
+        if c < 0:
+            return None
+        if sea[c]:
+            return min(float(ground[c]), 0.0)
+        if lake[c]:
+            return float(lake_level[c])
+        return float(ground[c])
+
+    # From the sources downstream: never above the ground, always a little below the
+    # cell upstream (rivers cut through the rims of basins the world map filled in).
+    cell_list = [int(c) for c in cells]
+    donors_left = {c: 0 for c in cell_list}
+    for c in cell_list:
+        r = int(rec[c])
+        if r in donors_left:
+            donors_left[r] += 1
+    level = {c: float(ground[c]) for c in cell_list}
+    ready = [c for c in cell_list if donors_left[c] == 0]
+    while ready:
+        c = ready.pop()
+        r = int(rec[c])
+        if r in donors_left:
+            level[r] = min(level[r], level[c] - DROP)
+            donors_left[r] -= 1
+            if donors_left[r] == 0:
+                ready.append(r)
+    out = elevation_m.copy()
+    n = 2 * f + 1
+    t = np.linspace(0.0, 1.0, n)
+    for a in cells:
+        a = int(a)
+        b = int(rec[a])
+        if b < 0:
+            continue
+        za = level[a]
+        zb = level[b] if b in level else min(za - DROP, end_level(b))
+        ay, ax = divmod(a, w)
+        by, bx = divmod(b, w)
+        fy0 = (ay - box.row0) * f + (f - 1) / 2
+        fx0 = ((ax - box.col0 + w // 2) % w - w // 2) * f + (f - 1) / 2
+        fy1 = fy0 + (by - ay) * f
+        fx1 = fx0 + (((bx - ax + w // 2) % w) - w // 2) * f
+        py = np.rint(fy0 + (fy1 - fy0) * t).astype(int)
+        px = np.rint(fx0 + (fx1 - fx0) * t).astype(int)
+        z = za + (zb - za) * t - CHANNEL_DEPTH_M
+        inside = (py >= 0) & (py < H) & (px >= 0) & (px < W)
+        if inside.any():
+            np.minimum.at(out, (py[inside], px[inside]), z[inside])
+    return np.where(ocean, elevation_m, out)
+
+
+def _basin_sinks(world, box, grid):
+    """Where the water of a closed basin ends (and evaporates) on the world map: the centre
+    of each such world cell in the region. Rivers flowing into a closed lake end there,
+    as on the world map, instead of draining out of the basin another way."""
+    h, w = world.elevation_m.shape
+    f = box.factor
+    out = np.zeros(grid.lat.shape, bool)
+    if world.closed is None or not world.closed.any():
+        return out
+    rows = np.arange(box.row0, box.row0 + box.rows)
+    cols = (box.col0 + np.arange(box.cols)) % w
+    closed = world.closed[np.ix_(rows, cols)]
+    rec = world.receiver[(rows[:, None] * w + cols[None, :])]
+    rec_closed = np.where(rec >= 0, world.closed.ravel()[np.maximum(rec, 0)], False)
+    ys, xs = np.nonzero(closed & ~rec_closed)
+    a, b = (f - 1) // 2, f // 2 + 1
+    for y, x in zip(ys, xs):
+        out[y * f + a:y * f + b, x * f + a:x * f + b] = True
+    return out
+
+
+def _edge_outlets(world, box, grid):
+    """Where water may leave the region over its edge: only where the world's own rivers
+    and drainage leave it, so a river running near the edge stays on its course instead
+    of spilling out over the nearest bit of edge. (If nothing drains out that way, the
+    whole edge is open, as for a closed inland region.)"""
+    h, w = world.elevation_m.shape
+    f = box.factor
+    inside = np.zeros((h, w), bool)
+    cols = (box.col0 + np.arange(box.cols)) % w
+    inside[box.row0:box.row0 + box.rows][:, cols] = True
+    rec = world.receiver
+    flat_inside = inside.ravel()
+    leave = np.flatnonzero(flat_inside & (rec >= 0))
+    leave = leave[~flat_inside[rec[leave]]]
+    out = np.zeros(grid.lat.shape, bool)
+    if len(leave) == 0:
+        out[0, :] = out[-1, :] = out[:, 0] = out[:, -1] = True
+        return out
+    ry, rx = np.divmod(leave, w)
+    by, bx = ry - box.row0, (rx - box.col0) % w           # the world cell, in the box
+    ty, tx = np.divmod(rec[leave], w)
+    dy = np.sign(ty - ry)
+    dx = np.sign(((tx - rx + w // 2) % w) - w // 2)
+    H, W = grid.lat.shape
+    for y, x, sy, sx in zip(by, bx, dy, dx):
+        rows = slice(y * f, (y + 1) * f)
+        cols_ = slice(x * f, (x + 1) * f)
+        if sy < 0 and y == 0:
+            out[0, cols_] = True
+        if sy > 0 and y == box.rows - 1:
+            out[H - 1, cols_] = True
+        if sx < 0 and x == 0:
+            out[rows, 0] = True
+        if sx > 0 and x == box.cols - 1:
+            out[rows, W - 1] = True
+    return out
 
 
 def _inflow(world, box, grid):

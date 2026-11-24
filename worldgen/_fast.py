@@ -18,7 +18,7 @@ HAVE_NUMBA = numba is not None
 
 if HAVE_NUMBA:
     @numba.njit(cache=True)
-    def flood_kernel(z, seeds, visited, h, w):
+    def flood_kernel(z, seeds, visited, h, w, wraps=True):
         """Priority flood; see hydrology.priority_flood. Same order and ties as the Python version."""
         n = h * w
         filled = z.copy()
@@ -41,7 +41,10 @@ if HAVE_NUMBA:
                 yy = y + dys[k]
                 if yy < 0 or yy >= h:
                     continue
-                j = yy * w + (x + dxs[k]) % w
+                xx = x + dxs[k]
+                if not wraps and (xx < 0 or xx >= w):
+                    continue
+                j = yy * w + xx % w
                 if visited[j]:
                     continue
                 visited[j] = 1

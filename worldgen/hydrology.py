@@ -14,7 +14,7 @@ SECONDS_PER_YEAR = 31_557_600
 _OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 
 
-def priority_flood(elevation_m, ocean):
+def priority_flood(elevation_m, ocean, wraps=True):
     """Work out where water drains from every land pixel.
 
     Starts at the coast and floods inland, always expanding from the lowest pixel
@@ -25,6 +25,8 @@ def priority_flood(elevation_m, ocean):
     Ties (pixels at the same filled level, i.e. inside a filled basin) are broken by
     the original ground height, so paths across a basin follow its real valley floor
     instead of running in straight lines.
+
+    wraps     whether the map wraps east-west (the world does, regions don't)
 
     Returns
       filled    elevation with every basin filled to its spill point
@@ -48,12 +50,16 @@ def priority_flood(elevation_m, ocean):
             nb[-1] = False
         elif dy == -1:
             nb[0] = False
+        if not wraps and dx == 1:
+            nb[:, -1] = False
+        elif not wraps and dx == -1:
+            nb[:, 0] = False
         touches_land |= nb
     seeds = np.flatnonzero(ocean & touches_land)
     if _fast.HAVE_NUMBA and len(seeds):
         filled, receiver, order = _fast.flood_kernel(
             elevation_m.ravel().astype(np.float64), seeds.astype(np.int64),
-            ocean.ravel().astype(np.uint8), h, w)
+            ocean.ravel().astype(np.uint8), h, w, wraps)
         return filled.reshape(h, w), receiver, order
     heap = [(z[i], z[i], int(i)) for i in seeds]
     heapq.heapify(heap)
@@ -66,6 +72,8 @@ def priority_flood(elevation_m, ocean):
         for dy, dx in _OFFSETS:
             yy = y + dy
             if yy < 0 or yy >= h:
+                continue
+            if not wraps and not 0 <= x + dx < w:
                 continue
             j = yy * w + (x + dx) % w
             if visited[j]:

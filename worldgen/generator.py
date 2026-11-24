@@ -1243,7 +1243,7 @@ def erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow=Non
     """
     if cfg.erosion <= 0:
         return elevation_m
-    _, receiver, order = hydrology.priority_flood(elevation_m, outlet)
+    _, receiver, order = hydrology.priority_flood(elevation_m, outlet, grid.wraps)
     none = np.zeros(ocean.shape, bool)
     flow, catchment = _rivers(receiver, order, outlet, none, precip, temperature, grid, cfg, inflow)
     channel = (catchment >= cfg.river_min_catchment_km2) & ~ocean
