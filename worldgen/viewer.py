@@ -501,7 +501,8 @@ class Viewer:
             zoom_text += (f"   |   enhanced x{self.region.box.factor}"
                           f" ({self.region.grid.km_per_px:.0f} km/px)")
         star = "\u2605 " if self._is_favourite() else ""
-        title = (f"{star}Seed {self.cfg.seed}   |   {w.major_landmasses} major landmasses, {w.islands} islands,"
+        name = " (Earth)" if self.cfg.seed == 0 else ""
+        title = (f"{star}Seed {self.cfg.seed}{name}   |   {w.major_landmasses} major landmasses, {w.islands} islands,"
                  f" {w.lakes} lakes   |   {self.cfg.width} px{zoom_text}   |   {self.timings}")
         changed = _changed_settings(self.cfg)
         if changed:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "worldgen"
-version = "1.5.1"
+version = "1.6.0"
 description = "Procedural Earth-like worlds: plate tectonics, climate, biomes, lakes and rivers, with an interactive viewer."
 readme = "README.md"
 license = {text = "MIT"}
@@ -23,3 +23,6 @@ worldgen = "worldgen.viewer:main"
 
 [tool.setuptools]
 packages = ["worldgen"]
+
+[tool.setuptools.package-data]
+worldgen = ["data/*.npz"]

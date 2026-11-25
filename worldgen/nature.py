@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .earth import MINERAL_DAMPING, is_earth
+from .earth_data import HOMELANDS, ORES, REACH_KM as EARTH_REACH_KM
 from .generator import BIOME_ID, blur, distance_to, smoothstep
 from .noise import Perlin3, fbm
 
@@ -143,12 +145,18 @@ def species_native(world, suitability):
     edge_seed = world.cfg.seed * 7919 + 515151
     edge_noise = (fbm(Perlin3(edge_seed + 2), world.grid.xyz, 10, 3),
                   fbm(Perlin3(edge_seed + 3), world.grid.xyz, 16, 2))
+    earth = is_earth(world.cfg)
     for i, sp in enumerate(SPECIES):
         sp_seed = int(rng.integers(2 ** 63))                     # fixed draws per species
         sp_rng = np.random.default_rng(sp_seed)
         suit = suitability[i]
         suit_c = coarse._down(suit)
         homes = np.zeros(coarse.shape, bool)
+        reach_km = sp.reach_km
+        if earth:   # Earth: real homelands (earth_data.py) instead of picked ones
+            homes = _earth_homes(coarse, suit_c, HOMELANDS[sp.key])
+            reach_km = EARTH_REACH_KM.get(sp.key, reach_km)
+            big = []
         marks = sp_rng.random(coarse.shape).ravel()
         tickets = sp_rng.random((max(sp.homelands),) + marks.shape)   # fixed per cell, per homeland
         for land_id in big:
@@ -173,12 +181,50 @@ def species_native(world, suitability):
         if not homes.any():
             continue
         noise_seed = world.cfg.seed * 7919 + 515151 + i * 104729
-        effort = coarse.spread(homes, suit, noise_seed=noise_seed, reach_km=sp.reach_km * RANGE_EFFORT)
+        effort = coarse.spread(homes, suit, noise_seed=noise_seed, reach_km=reach_km * RANGE_EFFORT)
         offset = int(sp_rng.integers(lm.shape[1]))
-        budget = sp.reach_km * RANGE_EFFORT * (1 + 0.4 * np.roll(edge_noise[0], offset, axis=1))
+        budget = reach_km * RANGE_EFFORT * (1 + 0.4 * np.roll(edge_noise[0], offset, axis=1))
         tolerance = 0.35 + 0.15 * np.roll(edge_noise[1], -offset, axis=1)
         out[i] = (effort <= budget) & (suit >= tolerance)
+        if earth:
+            # The real homelands themselves always count, wherever the habitat is at all
+            # possible: the model's climate is only roughly Earth's (too dry or wet in places).
+            out[i] |= _earth_cores(world, HOMELANDS[sp.key]) & (suit >= EARTH_CORE_MIN_SUIT)
     return out
+
+
+EARTH_CORE_MIN_SUIT = 0.05
+
+
+def _earth_cores(world, places):
+    """Land within each of a species' real homelands, at full resolution (Earth only)."""
+    from .earth import great_circle_km
+
+    lat, lon = world.grid.lat, world.grid.lon
+    core = np.zeros(lat.shape, bool)
+    for plat, plon, radius_km in places:
+        core |= great_circle_km(lat, lon, plat, plon) <= radius_km
+    return core & ~world.ocean & ~world.lake
+
+
+def _earth_homes(coarse, suit_c, places):
+    """Coarse cells of Earth's homelands for one species: the suitable land within each
+    place's radius, or (if the model's climate leaves none suitable there) the most
+    suitable land cell within it, so every real homeland seeds a range."""
+    from .earth import great_circle_km
+
+    homes = np.zeros(coarse.shape, bool)
+    lat, lon = coarse.lat, coarse.lon
+    for plat, plon, radius_km in places:
+        near = (great_circle_km(lat, lon, plat, plon) <= radius_km) & coarse.land
+        if not near.any():
+            continue
+        good = near & (suit_c >= 0.5)
+        if good.any():
+            homes |= good
+        else:
+            homes.ravel()[np.argmax(np.where(near, suit_c, -1).ravel())] = True
+    return homes
 
 
 RANGE_EFFORT = 1.5          # effort budget relative to reach_km (good habitat costs ~1 per km)
@@ -200,6 +246,7 @@ class _CoarseGrid:
         self.land = self._down(land) > 0.5
         self.grid = Grid(*self.shape) if self.wraps else None
         km = world.grid.km_per_px * self.f
+        self.lat, self.lon = self._down(world.grid.lat), self.sample(world.grid.lon) + 0.5 * world.grid.dpp * (self.f - 1)
         cos_row = np.maximum(np.cos(np.radians(self._down(world.grid.lat)[:, :1])), 0.05)
         self.km_ns, self.km_ew = km, km * cos_row
 
@@ -285,12 +332,26 @@ def mineral_fields(cfg, grid, env, elevation_m, ocean, lake, precip, temperature
         "oil": (2.5, 0.4, 0.7), "saltpeter": (6, -0.05, 0.4),
     }
     out = {}
+    earth = is_earth(cfg)
     for k, name in enumerate(MINERALS):
         freq, lo, hi = rarity[name]
         value = geology[name] * patches(k, freq, lo, hi)
         allowed = land | (shelf if name == "oil" else np.zeros_like(land))
+        if earth:   # Earth: known ore regions, plus a damped copy of the geology
+            damp = 1.0 if name == "iron" else MINERAL_DAMPING
+            value = np.maximum(_earth_ores(grid, ORES[name], patches(k, freq * 3, -0.6, 0.4)), damp * value)
         out[name] = np.where(allowed, np.clip(value, 0, 1), 0.0).astype(np.float32)
     return out
+
+
+def _earth_ores(grid, places, patchiness):
+    """Richness (0..1) of Earth's known ore regions on any grid."""
+    from .earth import _disc
+
+    out = np.zeros(grid.lat.shape)
+    for lat, lon, radius_km, richness in places:
+        out = np.maximum(out, richness * _disc(grid, lat, lon, radius_km))
+    return out * (0.6 + 0.4 * patchiness)
 
 
 # ------------------------------------------------------------------ disease

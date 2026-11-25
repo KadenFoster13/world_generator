@@ -21,6 +21,7 @@ import numpy as np
 from scipy.ndimage import label, maximum_filter
 
 from . import hydrology
+from .earth import earth_env, is_earth, region_elevation
 from .generator import (BIOME_ID, Grid, Terrain, World, _apply_archipelagos, _climate,
                       _piece_map, _plate_boundaries, _rivers, _synthesize, _to_metres,
                       detail_octaves, erode, fill_pockets, finish_world)
@@ -83,12 +84,17 @@ def generate_region(world: World, box: RegionBox) -> World:
     sample, nearest = _samplers(world, box)
 
     # --- terrain: the world's large-scale fields + finer detail noise
-    env = {name: sample(field) for name, field in t.env.items()}
-    raw = _synthesize(cfg, grid, extra, env, t.noises, t.hot_stamps)
-    if t.arch_stamps:
-        raw = _apply_archipelagos(raw, cfg, grid, t.arch_stamps, sample(t.arch_dist), t.arch_sea,
-                                  t.noises["arch"], extra, t.noises.get("arch_fine"))
-    elevation_m, ocean = _to_metres(raw, world.sea_raw, world.land_scale, world.depth_scale, cfg)
+    if is_earth(cfg):   # Earth: the stored real elevation, finer, with a little extra relief
+        raw = region_elevation(grid)
+        env = earth_env(raw, grid)
+        elevation_m, ocean = raw.copy(), raw < 0
+    else:
+        env = {name: sample(field) for name, field in t.env.items()}
+        raw = _synthesize(cfg, grid, extra, env, t.noises, t.hot_stamps)
+        if t.arch_stamps:
+            raw = _apply_archipelagos(raw, cfg, grid, t.arch_stamps, sample(t.arch_dist), t.arch_sea,
+                                      t.noises["arch"], extra, t.noises.get("arch_fine"))
+        elevation_m, ocean = _to_metres(raw, world.sea_raw, world.land_scale, world.depth_scale, cfg)
     elevation_m, ocean = _keep_real_sea(elevation_m, ocean, nearest(world.ocean), grid)
 
     # --- climate, with the world's winds
@@ -126,10 +132,14 @@ def generate_region(world: World, box: RegionBox) -> World:
 
     # Plates, for the Plates layer.
     lay = t.layout
-    piece, _ = _piece_map(grid.xyz, lay["centres"], lay["size_bias"], lay["warp_noise"],
-                          cfg.plate_boundary_warp)
-    plate = lay["plate_of"][piece]
-    boundary, convergence, _ = _plate_boundaries(plate, lay["omega"], grid.xyz)
+    if lay is None:     # Earth: no generated plates
+        piece = plate = np.zeros(ocean.shape, int)
+        boundary, convergence = np.zeros(ocean.shape, bool), np.zeros(ocean.shape)
+    else:
+        piece, _ = _piece_map(grid.xyz, lay["centres"], lay["size_bias"], lay["warp_noise"],
+                              cfg.plate_boundary_warp)
+        plate = lay["plate_of"][piece]
+        boundary, convergence, _ = _plate_boundaries(plate, lay["omega"], grid.xyz)
 
     terrain = Terrain(cfg=cfg, raw=raw, plate=plate, piece=piece,
                       plate_is_continental=t.plate_is_continental, boundary=boundary,

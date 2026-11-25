@@ -31,6 +31,48 @@ Everything uses real units (metres, °C, mm/yr, km, m³/s), and every setting li
 [`worldgen/config.py`](worldgen/config.py). Every output field is listed, with units, in
 [DATA.md](DATA.md).
 
+## Seed 0 is Earth
+
+Seed 0 is the real planet, for playing on Earth and for checking a simulation against
+Earth's geography. Its elevation comes from NOAA's ETOPO 2022 relief model instead of the
+plate generator, and on land its temperature and rain are Earth's real 1981-2010 monthly
+means instead of the generator's climate model (the model still covers the sea). Seasons
+come from the real months too: the warmest and coldest month, wet and dry seasons, and
+the months warm and wet enough to grow crops, so the monsoon and Mediterranean dry
+summers come out right. Temperatures are corrected for height within each half-degree
+cell. Earth's biomes follow from that climate, with one Earth-only rule: tundra only
+where the warmest month stays below ~12 C, so cold-wintered steppe (Kazakhstan, Mongolia)
+and taiga (Siberia) aren't classed as tundra. Everything else (sea level at 0 m, rivers,
+lakes, soils, floodplains, ice-age coasts, disease) runs exactly as for any other seed.
+
+- **Wild species** start from Earth's real homelands (wheat and barley in the Fertile
+  Crescent, rice on the Yangtze and Ganges, teosinte in the Balsas valley, potatoes by
+  Titicaca, horses on the Pontic-Caspian steppe...) and spread through suitable habitat
+  as on any world. The Americas get no wild cattle, horses, sheep or goats, and Australia
+  no sheep or goats. The table, with what each entry stands for, is in
+  [`worldgen/earth_data.py`](worldgen/earth_data.py).
+- **Minerals** are richest in Earth's known ore regions (tin in Cornwall, the Erzgebirge,
+  Malaya, Yunnan, Bolivia; copper on Cyprus, at Rio Tinto, in the Andes and the
+  copperbelt; silver at Laurion and Potosi...), from the same file. Elsewhere the usual
+  geology-based fields apply, scaled down (iron stays mostly geological).
+- Other widths are resampled from the stored 1600 x 800 grid; Enhance adds a little fine
+  relief on top. The Plates layer shows a single plate.
+
+Climate source: Willmott, C. J. and K. Matsuura, Terrestrial Air Temperature and
+Precipitation: Monthly and Annual Time Series (V5.01), University of Delaware; the
+1981-2010 long-term monthly means, data provided by the NOAA PSL, Boulder, Colorado, USA,
+from their website at https://psl.noaa.gov. Stored as `worldgen/data/earth_climate.npz`
+(0.5 degree grid, 3 MB), made by
+[`scripts/make_earth_climate.py`](scripts/make_earth_climate.py), which names the files.
+
+Elevation source: ETOPO 2022 15 arc-second global relief model (ice surface), NOAA
+National Centers for Environmental Information, DOI
+[10.25921/fd45-gt74](https://doi.org/10.25921/fd45-gt74). US-government data; NOAA's
+ERDDAP server, where it was fetched, states it "may be used and redistributed for free".
+It is stored as `worldgen/data/earth_elevation.npz` (int16 metres, 2 MB), made by
+[`scripts/make_earth_elevation.py`](scripts/make_earth_elevation.py), which says how to
+download the source again.
+
 ## Install
 
 Needs Python 3.10 or newer.
@@ -50,6 +92,7 @@ For faster river routing (worth it at 1600/2400 px), install the optional extra:
 ```
 python -m worldgen                    (or just: worldgen)
 python -m worldgen --seed 42 --width 1600
+python -m worldgen --seed 0           (Earth)
 ```
 
 | Control | What it does |
@@ -119,6 +162,11 @@ python -m unittest discover tests
 | `worldgen/noise.py` | Noise on the sphere |
 | `worldgen/render.py` | Map colours and layers |
 | `worldgen/export.py` | The data contract (every field), export, cache |
+| `worldgen/earth.py` | Seed 0: Earth's real elevation and the hooks for its tables |
+| `worldgen/earth_data.py` | Earth's wild species homelands and ore regions |
+| `worldgen/data/` | Earth's elevation and climate grids (see "Seed 0 is Earth") |
+| `scripts/make_earth_elevation.py` | Rebuilds that grid from ETOPO 2022 |
+| `scripts/make_earth_climate.py` | Rebuilds Earth's climate grid from the University of Delaware climatology |
 | `worldgen/viewer.py` | The interactive viewer |
 | `worldgen/_fast.py` | Optional compiled (numba) river routing |
 

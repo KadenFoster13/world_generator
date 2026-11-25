@@ -484,12 +484,15 @@ NOISE_NAMES = ("coast", "width", "dist", "gaps", "texture", "old", "old_mask", "
 
 
 def generate_terrain(cfg: WorldConfig) -> Terrain:
-    """Whole-globe terrain.
+    """Whole-globe terrain (seed 0 is Earth's real terrain: see earth.py).
 
     Built in two layers so a zoomed-in region can be regenerated in more detail
     and still match: smooth large-scale "envelope" fields (continents, mountain
     belts, rifts) computed here, then detail noise added by _synthesize().
     """
+    from .earth import earth_terrain, is_earth
+    if is_earth(cfg):
+        return earth_terrain(cfg)
     grid = Grid(cfg.height, cfg.width)
     w, h = grid.width, grid.height
     xyz, lat = grid.xyz, grid.lat
@@ -829,17 +832,20 @@ def _apply_archipelagos(raw, cfg, grid, stamps, dist_km, sea, rough_noise, extra
 
 
 # ------------------------------------------------------------------ climate
-def _wind_sweep(land_elev_m, ocean, lat, cfg, reach_km=None):
+def _wind_sweep(land_elev_m, ocean, lat, cfg, reach_km=None, recharge_km=0.0):
     """Carry moisture from the ocean along prevailing winds, losing it inland and over mountains.
 
     Trade winds (|lat| < 30) and polar easterlies (|lat| > 60) blow toward the west;
-    the westerlies in between blow toward the east.
+    the westerlies in between blow toward the east. With `recharge_km` > 0 the air takes
+    up moisture gradually over the sea (about that many km to fill), so narrow seas like
+    the Red Sea don't soak the land beyond them (used for Earth; 0 = filled at once).
     """
     h, w = ocean.shape
     # Share of moisture kept per pixel of travel; pixels are narrower toward the poles.
     reach_km = cfg.moisture_reach_km if reach_km is None else reach_km
     px_km = km_per_px(w) * np.maximum(np.cos(np.radians(lat[:, 0])), 0.05)
     retention = np.exp(-px_km / reach_km)
+    refill = 1.0 if recharge_km <= 0 else 1 - np.exp(-px_km / recharge_km)
     westward = (np.abs(lat[:, 0]) < 30) | (np.abs(lat[:, 0]) > 60)
 
     def orient(a):
@@ -856,7 +862,8 @@ def _wind_sweep(land_elev_m, ocean, lat, cfg, reach_km=None):
         c = step % w
         rise = np.clip(elev[:, c] - elev[:, c - 1], 0, None) / 1000.0
         lost = np.minimum(moisture, cfg.rain_shadow * rise)
-        moisture = np.where(sea[:, c], 1.0, moisture * retention - lost)
+        at_sea = 1.0 if recharge_km <= 0 else moisture + (1.0 - moisture) * refill
+        moisture = np.where(sea[:, c], at_sea, moisture * retention - lost)
         moisture = np.clip(moisture, 0, 1)
         if step >= w:
             out[:, c] = moisture
@@ -894,7 +901,7 @@ def _region_areas(lbl, n, cos_lat):
     return area
 
 
-def _remove_small_seas(elevation_m, ocean, cos_lat, cfg):
+def _remove_small_seas(elevation_m, ocean, cos_lat, cfg, min_area=None):
     """Turn small enclosed bodies of sea water into land.
 
     Coastline noise leaves scattered low spots below sea level inside continents.
@@ -904,7 +911,7 @@ def _remove_small_seas(elevation_m, ocean, cos_lat, cfg):
     """
     lbl, n = label_wrapped(ocean)
     area = _region_areas(lbl, n, cos_lat)
-    keep = area >= cfg.inland_sea_min_area
+    keep = area >= (cfg.inland_sea_min_area if min_area is None else min_area)
     keep[np.argmax(area)] = True  # the world ocean
     keep[0] = False
     fill = ocean & ~keep[lbl]
@@ -1048,8 +1055,11 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
     if wind is None:
         kpp = grid.km_per_px
         smooth_relief = blur(np.maximum(elevation_m, 0), 200 / kpp)  # rain shadows come from ranges
-        moisture, uplift = _wind_sweep(smooth_relief, ocean, lat, cfg)
-        monsoon, _ = _wind_sweep(smooth_relief, ocean, lat, cfg, reach_km=cfg.monsoon_reach_km)
+        from .earth import SEA_RECHARGE_KM, is_earth
+        recharge = SEA_RECHARGE_KM if is_earth(cfg) else 0.0
+        moisture, uplift = _wind_sweep(smooth_relief, ocean, lat, cfg, recharge_km=recharge)
+        monsoon, _ = _wind_sweep(smooth_relief, ocean, lat, cfg, reach_km=cfg.monsoon_reach_km,
+                                 recharge_km=recharge)
         current_temp, current_dry = _ocean_currents(ocean, grid, cfg)
         wind = dict(
             # Extra north-south smoothing hides the row-by-row wind streaks.
@@ -1087,11 +1097,29 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
     precip *= 1 - 0.65 * wind["current_dry"]
     precip = np.maximum(precip, 0)
 
+    from .earth import earth_climate, is_earth
+    real = None
+    if is_earth(cfg):   # Earth: the real 1981-2010 climate on land (the model's at sea)
+        real = earth_climate(grid, elevation_m, cfg.lapse_rate_c_per_km, GROWING_TEMP_C, GROWING_RAIN_MM)
+        temperature = np.where(ocean, temperature, real[0])
+        precip = np.where(ocean, precip, real[1])
+
     # A little fine noise on the biome thresholds so borders wander like real ecotones.
     t_jitter = 1.2 * fbm(tj_n, xyz, 12, 3)
     p_jitter = 1 + 0.18 * fbm(pj_n, xyz, 12, 3)
     biome = _classify(elevation_m, ocean, temperature + t_jitter, precip * p_jitter)
     seasons = _seasons(cfg, lat, wobbly_lat, subtropics, temperature, precip, wind)
+    if real is not None:
+        for key, value in real[2].items():
+            seasons[key] = np.where(ocean, seasons[key], value)
+        # Real continental climates are cold on average but warm in summer: tundra only
+        # where the warmest month stays below ~12 C (about the treeline); dry land with hot
+        # summers and a mean above -3 C is steppe (Kazakhstan, Mongolia average 0-4 C);
+        # the rest is taiga.
+        summer_warm = (biome == BIOME_ID["Tundra"]) & (seasons["warmest_month_c"] >= 12)
+        steppe = summer_warm & (precip < 450) & (seasons["warmest_month_c"] >= 16) & (temperature > -3)
+        biome[summer_warm] = BIOME_ID["Boreal forest"]
+        biome[steppe] = BIOME_ID["Grassland"]
     # Mountain glaciers: snowy land whose warmest month stays around freezing
     # (also on high tropical peaks, like Kilimanjaro).
     glacier = (~ocean & (seasons["warmest_month_c"] + t_jitter < cfg.glacier_summer_max_c)
@@ -1190,9 +1218,16 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     grid = terrain.grid
     lat = grid.lat
     cos_lat = np.cos(np.radians(lat))
-    sea, land_scale, depth_scale = _elevation_scale(terrain.raw, cos_lat, cfg)
-    elevation_m, ocean = _to_metres(terrain.raw, sea, land_scale, depth_scale, cfg)
-    elevation_m, ocean = _remove_small_seas(elevation_m, ocean, cos_lat, cfg)
+    from .earth import INLAND_SEA_MIN_AREA, is_earth
+    if is_earth(cfg):   # seed 0: real elevation in metres, sea level at 0 m
+        sea, land_scale, depth_scale = 0.0, 1.0, 1.0
+        elevation_m = np.array(terrain.raw, dtype=np.float64)
+        ocean = elevation_m < 0
+        elevation_m, ocean = _remove_small_seas(elevation_m, ocean, cos_lat, cfg, INLAND_SEA_MIN_AREA)
+    else:
+        sea, land_scale, depth_scale = _elevation_scale(terrain.raw, cos_lat, cfg)
+        elevation_m, ocean = _to_metres(terrain.raw, sea, land_scale, depth_scale, cfg)
+        elevation_m, ocean = _remove_small_seas(elevation_m, ocean, cos_lat, cfg)
     temperature, precip, biome, wind, seasons = _climate(cfg, grid, elevation_m, ocean)
 
     # Rivers carve valleys; then drainage is worked out again on the carved land.

@@ -195,5 +195,74 @@ class GenerationTests(unittest.TestCase):
         self.assertGreater(region.elevation_m.size, 0)
 
 
+
+class EarthTests(unittest.TestCase):
+    """Seed 0 is Earth: real elevation, real homelands and ore regions."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.world = generate_world(WorldConfig(seed=0, width=800))
+
+    def at(self, a, lat, lon):
+        g = self.world.grid
+        return a[..., int((90 - lat) / g.dpp), int((lon + 180) / g.dpp) % g.width]
+
+    def near(self, a, lat, lon, km=300):
+        """Any cell of `a` within `km` of a point."""
+        from worldgen.earth import great_circle_km
+        g = self.world.grid
+        return bool(a[great_circle_km(g.lat, g.lon, lat, lon) <= km].any())
+
+    def test_land_and_sea(self):
+        w = self.world
+        land = {"Africa": (5, 20), "Europe": (50, 10), "Asia": (45, 90), "India": (22, 78),
+                "North America": (40, -100), "South America": (-10, -55), "Australia": (-25, 135),
+                "Antarctica": (-80, 0), "Greenland": (72, -40)}
+        for name, (lat, lon) in land.items():
+            self.assertFalse(self.at(w.ocean, lat, lon), name)
+        for name, (lat, lon) in {"mid Pacific": (0, -150), "Atlantic": (30, -40), "Indian Ocean": (-20, 80),
+                                 "Mediterranean": (35, 18), "Black Sea": (43, 34)}.items():
+            self.assertTrue(self.at(w.ocean, lat, lon), name)
+        cos_lat = np.cos(np.radians(w.grid.lat))
+        self.assertAlmostEqual((~w.ocean * cos_lat).sum() / cos_lat.sum(), 0.29, delta=0.02)
+        self.assertGreater(self.at(w.elevation_m, 33, 88), 4000)        # Tibet
+        self.assertGreater(w.discharge_m3s[~w.ocean].max(), 50000)      # the Amazon
+
+    def test_wild_species(self):
+        from worldgen import SPECIES_KEYS
+        w = self.world
+        native = dict(zip(SPECIES_KEYS, w.species_native))
+        for key in ("temperate_grain", "sheep_goat", "legume"):
+            self.assertTrue(self.near(native[key], 37, 40), f"{key} in the Fertile Crescent")
+        self.assertTrue(self.near(native["slow_grain"], 18.3, -100.5), "teosinte in the Balsas")
+        self.assertTrue(self.near(native["highland_tuber"], -15.8, -69.5), "potato by Titicaca")
+        self.assertTrue(self.near(native["llama"], -17, -68.5), "camelids on the Altiplano")
+        self.assertTrue(self.near(native["horse"], 48.5, 44, 600), "horses on the Pontic-Caspian steppe")
+        self.assertTrue(self.near(native["wet_grain"], 30, 116, 500), "rice on the Yangtze")
+        americas = w.grid.lon < -30
+        australia = (w.grid.lon > 110) & (w.grid.lon < 155) & (w.grid.lat < -10) & (w.grid.lat > -45)
+        for key in ("cattle", "horse", "sheep_goat", "camel", "pig"):
+            self.assertFalse((native[key] & americas).any(), f"no wild {key} in the Americas")
+        self.assertFalse((native["sheep_goat"] & australia).any(), "no wild sheep or goats in Australia")
+        for key in ("slow_grain", "highland_tuber", "llama"):
+            self.assertFalse((native[key] & ~americas).any(), f"{key} only in the Americas")
+
+    def test_minerals(self):
+        w = self.world
+        self.assertTrue(self.near(w.tin > 0.6, 50.3, -5.2, 150), "tin in Cornwall")
+        self.assertTrue(self.near(w.tin > 0.6, 3.5, 101.5, 300), "tin in Malaya")
+        self.assertTrue(self.near(w.copper > 0.6, 35, 33, 120), "copper on Cyprus")
+        self.assertTrue(self.near(w.silver > 0.6, -19.6, -65.75, 150), "silver at Potosi")
+        self.assertTrue(self.near(w.oil > 0.6, 27, 50, 400), "oil in the Gulf")
+        for name in ("copper", "tin", "gold", "silver"):     # unlisted places stay modest
+            self.assertLess(float(np.percentile(getattr(w, name)[~w.ocean], 95)), 0.5, name)
+
+    def test_region(self):
+        region = generate_region(self.world, region_box(self.world, north=34, south=22, west=26, east=40))
+        self.assertTrue(region.river.any())                              # the Nile
+        self.assertTrue(region.ocean.any() and (~region.ocean).any())
+        self.assertTrue(region.species_native.any())
+
+
 if __name__ == "__main__":
     unittest.main()
