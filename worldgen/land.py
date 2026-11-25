@@ -15,6 +15,8 @@ _FERTILITY = {
     "Temperate rainforest": 0.5, "Tropical rainforest": 0.35, "Scrubland": 0.3,
     "Boreal forest": 0.3, "Tundra": 0.1, "Alpine": 0.1, "Desert": 0.08,
 }
+# Soil on a fully flooded floodplain (fresh silt every year), whatever the biome.
+ALLUVIAL_FERTILITY = 0.85
 # How much usable timber grows, by biome (0..1).
 _TIMBER = {
     "Tropical rainforest": 1.0, "Temperate rainforest": 1.0, "Temperate forest": 0.8,
@@ -79,20 +81,23 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
     # Marshes are areas, not scattered cells: smooth over ~25 km (matters on detailed maps).
     wetland = np.where(land, blur(wetland, 25 / kpp, grid.wraps), 0.0)
 
-    # --- soil fertility
-    fertility = _by_biome(biome, _FERTILITY)
-    floodplain = (river_flow > 300) & (slope < 5)          # big rivers spread silt on flat land
-    fertility = fertility + np.where(floodplain, 0.3 * np.clip(np.log10(np.maximum(river_flow, 1) / 300) / 2, 0, 1) + 0.1, 0)
-    fertility = fertility + 0.25 * volcanic                # volcanic soils are rich
-    fertility = fertility * np.clip(1 - slope / 80, 0.1, 1)
-    fertility = np.where(land & ~salt_flat & (temperature > -10), np.clip(fertility, 0, 1), 0.0)
-
     # --- river water for farming
     # Floodplain: flat land a big river floods every year, leaving water and silt behind
     # (crops grow on the receding flood with no canals at all, as along the Nile).
     flood_flow = np.clip(np.log10(np.maximum(river_flow, 1) / 300) / 1.5, 0, 1)   # 300 -> 0, ~10,000 m3/s -> 1
     floodplain = np.where(land & ~salt_flat, flood_flow * np.clip(1 - slope / 6, 0, 1)
                           * np.clip(1 - np.maximum(elevation_m, 0) / 1500, 0, 1), 0.0)
+
+    # --- soil fertility
+    fertility = _by_biome(biome, _FERTILITY)
+    silted = (river_flow > 300) & (slope < 5)              # big rivers spread silt on flat land
+    fertility = fertility + np.where(silted, 0.3 * np.clip(np.log10(np.maximum(river_flow, 1) / 300) / 2, 0, 1) + 0.1, 0)
+    fertility = fertility + 0.25 * volcanic                # volcanic soils are rich
+    fertility = fertility * np.clip(1 - slope / 80, 0.1, 1)
+    # Each flood lays down fresh silt, so a real floodplain's soil is rich whatever the
+    # climate around it (the Nile, Euphrates and Indus valleys run through desert).
+    fertility = np.maximum(fertility, ALLUVIAL_FERTILITY * np.clip(floodplain / 0.4, 0, 1))
+    fertility = np.where(land & ~salt_flat & (temperature > -10), np.clip(fertility, 0, 1), 0.0)
     # Irrigable: land canals could water from a river or lake (gentle slopes near water;
     # canals reach a few tens of km, so it spreads a little on detailed maps).
     source = np.maximum(np.clip(np.log10(1 + river_flow) / 3, 0, 1), np.where(near_lake, 0.6, 0.0))

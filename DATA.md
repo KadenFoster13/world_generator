@@ -38,7 +38,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `river_dry_flow_south` | m3/s | dry-season flow of that river |
 | `river_slope_east` | m/km | how steeply that river falls (rapids above rapids_min_slope_m_per_km) |
 | `river_slope_south` | m/km | how steeply that river falls |
-| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope) |
+| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a full floodplain's silt makes it 0.85 whatever the biome (1.6.2) |
 | `arable` | 0..1 | suitability for farming (fertility, slope, growing season, water) |
 | `fresh_water` | 0..1 | access to fresh water (rivers, lakes, rainfall) |
 | `floodplain` | 0..1 | flat land a big river floods every year: farmable on the receding flood without rain or canals (1.4) |

@@ -173,8 +173,32 @@ GORGES = {
                            (44.3, 23.0, 38), (43.9, 23.6, 28), (43.7, 24.5, 22)],
     "Yangtze, Three Gorges": [(29.56, 106.55, 160), (29.7, 107.4, 140), (30.8, 108.4, 110), (31.0, 109.5, 90),
                               (31.07, 109.9, 80), (31.04, 110.3, 70), (30.7, 111.3, 45), (30.33, 112.2, 30)],
-    "Congo, Livingstone Falls": [(-4.3, 15.3, 270), (-4.9, 14.4, 200), (-5.5, 13.8, 100), (-5.8, 13.45, 20),
+    # From Mbandaka through the narrow channel across the Bateke plateau to Malebo Pool,
+    # then down the falls (without the channel the river spills west through Gabon).
+    "Congo, Livingstone Falls": [(0.05, 18.26, 300), (-1.0, 17.15, 296), (-2.16, 16.23, 292), (-3.18, 16.2, 286),
+                                 (-3.85, 15.95, 280), (-4.3, 15.3, 270),(-4.9, 14.4, 200), (-5.5, 13.8, 100), (-5.8, 13.45, 20),
                                  (-5.85, 13.05, 5), (-6.0, 12.4, 0)],
+    # The Niger's bend past Tombouctou and through the Tossaye gorge (without it the river
+    # spills west into the Senegal).
+    "Niger, Tombouctou bend": [(13.44, -6.26, 285), (14.5, -4.2, 268), (15.9, -3.5, 263), (16.77, -3.0, 260),
+                               (16.95, -0.6, 255), (16.27, -0.04, 250), (15.4, 0.9, 240), (13.5, 2.1, 180)],
+    # The Amur through the Lesser Khingan and down its lower course to the Sea of Okhotsk
+    # (without it the river spills south down the Ussuri to the Sea of Japan).
+    "Amur, lower course": [(50.27, 127.53, 125), (49.2, 129.7, 95), (48.8, 130.6, 80), (47.9, 132.6, 50),
+                           (48.48, 135.07, 35), (49.6, 136.6, 25), (50.55, 137.0, 20), (51.4, 138.0, 12),
+                           (52.4, 139.7, 6), (53.14, 140.7, 2), (52.95, 141.2, 0)],
+    # The Euphrates (Karasu and Murat) through its Taurus canyons and down through Syria,
+    # and the Tigris past Mosul (without them the Euphrates is a trickle in Syria and the
+    # Tigris turns south down the Khabur).
+    "Euphrates, Karasu": [(39.7, 39.5, 1150), (39.26, 38.49, 850), (38.80, 38.75, 690)],
+    "Euphrates, Murat": [(38.74, 41.5, 1250), (38.69, 39.93, 850), (38.80, 38.75, 690)],
+    "Euphrates, Taurus to Syria": [(38.80, 38.75, 690), (38.23, 39.12, 560), (37.48, 38.32, 380),
+                                   (37.03, 37.98, 340), (36.83, 38.01, 325), (35.95, 39.0, 245),
+                                   (35.33, 40.14, 200), (34.45, 40.92, 175), (34.13, 42.38, 110),
+                                   (33.64, 42.83, 55), (33.42, 43.3, 45)],
+    "Tigris": [(37.91, 40.24, 580), (37.71, 41.41, 470), (37.33, 42.19, 370), (36.34, 43.13, 220),
+               (34.6, 43.68, 105), (34.2, 43.87, 65), (33.33, 44.4, 34), (32.5, 45.83, 18),
+               (31.84, 47.15, 8), (31.0, 47.43, 3)],
     "St Lawrence": [(44.2, -76.5, 74), (45.0, -74.7, 50), (45.5, -73.5, 10), (46.35, -72.5, 5),
                     (46.8, -71.2, 2), (47.5, -70.0, 0)],
 }

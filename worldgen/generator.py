@@ -998,14 +998,17 @@ def _find_lakes(elevation_m, filled, ocean, precip, temperature, cfg):
     return lake, salt, closed[basins] & (basins > 0), lake_level
 
 
-def _rivers(receiver, order, ocean, closed, precip, temperature, grid, cfg, inflow=None):
+def _rivers(receiver, order, ocean, closed, precip, temperature, grid, cfg, inflow=None, runoff=None):
     """River discharge (m3/s) and upstream catchment area (km2) for every pixel.
 
     `inflow` optionally adds (discharge, catchment) arrays of water entering from
-    outside, for regions.
+    outside, for regions. `runoff` (mm/yr) replaces the yearly rule where it's known
+    month by month (Earth).
     """
     px_area = hydrology.pixel_area_m2(grid.lat, grid.equivalent_width)
-    local = hydrology.runoff_mm(precip, temperature, cfg) / 1000 * px_area / hydrology.SECONDS_PER_YEAR
+    if runoff is None:
+        runoff = hydrology.runoff_mm(precip, temperature, cfg)
+    local = runoff / 1000 * px_area / hydrology.SECONDS_PER_YEAR
     local = np.where(ocean, 0.0, local)
     area_km2 = np.where(ocean, 0.0, px_area / 1e6)
     if inflow is not None:
@@ -1111,7 +1114,7 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
     seasons = _seasons(cfg, lat, wobbly_lat, subtropics, temperature, precip, wind)
     if real is not None:
         for key, value in real[2].items():
-            seasons[key] = np.where(ocean, seasons[key], value)
+            seasons[key] = np.where(ocean, seasons.get(key, 0.0), value)
         # Real continental climates are cold on average but warm in summer: tundra only
         # where the warmest month stays below ~12 C (about the treeline); dry land with hot
         # summers and a mean above -3 C is steppe (Kazakhstan, Mongolia average 0-4 C);
@@ -1229,9 +1232,10 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
         elevation_m, ocean = _to_metres(terrain.raw, sea, land_scale, depth_scale, cfg)
         elevation_m, ocean = _remove_small_seas(elevation_m, ocean, cos_lat, cfg)
     temperature, precip, biome, wind, seasons = _climate(cfg, grid, elevation_m, ocean)
+    runoff = seasons.pop("runoff_mm", None)       # Earth: from its months
 
     # Rivers carve valleys; then drainage is worked out again on the carved land.
-    elevation_m = erode(elevation_m, ocean, ocean, precip, temperature, grid, cfg)
+    elevation_m = erode(elevation_m, ocean, ocean, precip, temperature, grid, cfg, runoff=runoff)
     # Drainage: which way water flows from every pixel, and how full each basin can get.
     filled, receiver, order = hydrology.priority_flood(elevation_m, ocean)
     if cfg.lakes:
@@ -1244,7 +1248,7 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     else:
         lake = salt_flat = closed = np.zeros(ocean.shape, bool)
         lake_level = np.full(ocean.shape, np.nan)
-    discharge, catchment = _rivers(receiver, order, ocean, closed, precip, temperature, grid, cfg)
+    discharge, catchment = _rivers(receiver, order, ocean, closed, precip, temperature, grid, cfg, runoff=runoff)
     # A river needs both enough water and enough land draining into it; a single very
     # wet hillside makes a lot of water but isn't a river yet.
     stream = (catchment >= cfg.river_min_catchment_km2) & ~ocean & ~lake
@@ -1273,7 +1277,7 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     return world
 
 
-def erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow=None):
+def erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow=None, runoff=None):
     """Carve river valleys, deeper and wider for bigger rivers.
 
     A quick stand-in for millions of years of erosion: a first drainage pass finds the
@@ -1285,7 +1289,7 @@ def erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow=Non
         return elevation_m
     _, receiver, order = hydrology.priority_flood(elevation_m, outlet, grid.wraps)
     none = np.zeros(ocean.shape, bool)
-    flow, catchment = _rivers(receiver, order, outlet, none, precip, temperature, grid, cfg, inflow)
+    flow, catchment = _rivers(receiver, order, outlet, none, precip, temperature, grid, cfg, inflow, runoff)
     channel = (catchment >= cfg.river_min_catchment_km2) & ~ocean
     height = np.maximum(elevation_m, 0)
     depth = np.where(channel, cfg.erosion * 18 * np.maximum(flow, 0) ** 0.33, 0.0)

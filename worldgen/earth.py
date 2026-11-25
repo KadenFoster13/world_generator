@@ -247,6 +247,47 @@ def _sample(field, lat, lon):
     return map_coordinates(padded, coords, order=1, mode="nearest").reshape(np.shape(lat))
 
 
+SOIL_WATER_MM = 100.0          # water the soil holds for crops between rains
+EVAPORATION_MM_PER_C_MONTH = 55.0 / 12   # what crops could use per month, per degree C above 0
+
+
+SNOWMELT_MM_PER_C_MONTH = 90.0           # snow melted per month per degree C above 0
+
+
+def _water_balance(temps, rains, growing_rain_mm):
+    """A month-by-month water balance: snow piles up below 0 C and melts above it; the
+    soil holds up to SOIL_WATER_MM for plants, which use what they can; what the soil can't
+    hold runs off into rivers. Returns (how wet enough each month is for crops, 0..1;
+    yearly runoff, mm).
+
+    Wet enough is FAO's length of growing period: rain plus stored water covering at least
+    half of what crops could use (or plenty of rain in the month itself). Winter-rain
+    lands grow wheat on stored water into spring (the Fertile Crescent, Anatolia, the
+    Mediterranean); counted on rain alone they look barren. Runoff by months matters where
+    rain and snow come in the cool season: eastern Anatolia's snowmelt feeds the Euphrates,
+    though a whole year's evaporation would use up all its rain."""
+    need = EVAPORATION_MM_PER_C_MONTH * np.maximum(temps, 0)
+    shape = temps.shape[1:]
+    store, snow, runoff = np.zeros(shape), np.zeros(shape), np.zeros(shape)
+    wet = np.zeros(temps.shape)
+    for lap in range(2):                         # the second lap starts from settled stores
+        for m in range(12):
+            frozen = temps[m] < 0
+            snow = snow + np.where(frozen, rains[m], 0.0)
+            melt = np.where(frozen, 0.0, np.minimum(snow, SNOWMELT_MM_PER_C_MONTH * np.maximum(temps[m], 0)))
+            snow = snow - melt
+            water = np.where(frozen, 0.0, rains[m]) + melt + store
+            use = np.minimum(water, need[m])
+            left = water - use
+            store = np.minimum(left, SOIL_WATER_MM)
+            if lap:
+                runoff = runoff + (left - store)
+                ratio = water / np.maximum(need[m], 1e-6)
+                wet[m] = np.maximum(np.clip((ratio - 0.3) / 0.4, 0, 1),
+                                    np.clip((rains[m] - growing_rain_mm / 2) / growing_rain_mm, 0, 1))
+    return wet, runoff
+
+
 def earth_climate(grid, elevation_m, lapse_c_per_km, growing_temp_c, growing_rain_mm):
     """Earth's real climate on any grid: the 1981-2010 monthly means, corrected for the
     difference between each cell's height and its half-degree cell's average (finer maps
@@ -266,11 +307,12 @@ def earth_climate(grid, elevation_m, lapse_c_per_km, growing_temp_c, growing_rai
     wet_half = np.sort(rains, axis=0)[6:].mean(axis=0)                 # the six wettest months
     seasonality = np.clip(12 * wet_half / np.maximum(precip, 1e-6) - 1, 0, 0.9)
     warm = np.clip((temps - growing_temp_c) / 3 + 0.5, 0, 1)            # per month, 0..1
-    wet = np.clip((rains - growing_rain_mm / 2) / growing_rain_mm, 0, 1)
+    wet, runoff = _water_balance(temps, rains, growing_rain_mm)
     seasons = dict(warmest_month_c=temps.max(axis=0), coldest_month_c=temps.min(axis=0),
                    wettest_month_mm=rains.max(axis=0), driest_month_mm=rains.min(axis=0),
                    rain_seasonality=seasonality, warm_months=warm.sum(axis=0),
-                   growing_months=np.minimum(warm, wet).sum(axis=0))
+                   growing_months=np.minimum(warm, wet).sum(axis=0),
+                   runoff_mm=runoff)    # taken out by the generator for its rivers
     return temperature, precip, seasons
 
 

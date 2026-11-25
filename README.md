@@ -60,9 +60,18 @@ lakes, soils, floodplains, ice-age coasts, disease) runs exactly as for any othe
   points along its length to its real area, at its real surface level, keeping near those
   points and out of ground above its surface (so it keeps its real shape): the
   elevation data records lake beds, not lake surfaces, so lakes can't be found from it. A
-  few gorges too narrow for the grid (the Danube's Iron Gates, the Yangtze's Three Gorges,
-  the Congo's cataracts, the St Lawrence) are cut back in, so the basins behind them drain
-  instead of filling into false seas. Both tables are in `worldgen/earth_data.py`.
+  few river courses too narrow for the grid (the Danube's Iron Gates, the Yangtze's Three
+  Gorges, the Congo's channel and cataracts, the Niger's bend past Tombouctou, the lower
+  Amur, the Euphrates through the Taurus and Syria, the Tigris past Mosul, the St
+  Lawrence) are cut back in, so the basins behind them drain the real way
+  instead of filling into false seas or spilling over a lower divide. Both tables are in `worldgen/earth_data.py`.
+- **Growing seasons and river flow** come from a month-by-month water balance of the
+  real climate: snow piles up and melts, the soil stores up to 100 mm for plants, and
+  what it can't hold runs off. Winter-rain lands (the Fertile Crescent, Anatolia, the
+  Mediterranean) grow crops on stored water into spring, and snowmelt feeds rivers like
+  the Euphrates. Not modelled: water lost in big swamps (the Sudd, the Niger's inland
+  delta), so the Nile, Niger and Zambezi run high, and frozen ground, so the Yenisei and
+  Lena run low.
 - Other widths are resampled from the stored 1600 x 800 grid; Enhance adds a little fine
   relief on top. The Plates layer shows a single plate.
 

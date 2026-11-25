@@ -100,11 +100,12 @@ def generate_region(world: World, box: RegionBox) -> World:
     # --- climate, with the world's winds
     wind = {name: sample(field) for name, field in world.wind.items()}
     temperature, precip, biome, _, seasons = _climate(cfg, grid, elevation_m, ocean, wind)
+    runoff = seasons.pop("runoff_mm", None)       # Earth: from its months
 
     # --- rivers carve valleys (rivers flowing in from outside count too)
     outlet = ocean | _edge_outlets(world, box, grid) | _basin_sinks(world, box, grid)
     inflow = _inflow(world, box, grid)
-    elevation_m = erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow)
+    elevation_m = erode(elevation_m, ocean, outlet, precip, temperature, grid, cfg, inflow, runoff)
 
     # --- lakes: the world's water levels on the finer terrain
     level = world.lake_level_m
@@ -123,7 +124,7 @@ def generate_region(world: World, box: RegionBox) -> World:
     _, receiver, order = hydrology.priority_flood(routed, outlet, wraps=False)
     filled = hydrology.priority_flood(elevation_m, outlet, wraps=False)[0]   # water levels on the real ground
     discharge, catchment = _rivers(receiver, order, outlet, closed, precip, temperature,
-                                   grid, cfg, inflow=inflow)
+                                   grid, cfg, inflow=inflow, runoff=runoff)
     stream = (catchment >= cfg.river_min_catchment_km2) & ~ocean & ~lake
     river = stream & (discharge >= cfg.river_min_discharge_m3s)
 
