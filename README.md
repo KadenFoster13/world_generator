@@ -55,6 +55,14 @@ lakes, soils, floodplains, ice-age coasts, disease) runs exactly as for any othe
   Malaya, Yunnan, Bolivia; copper on Cyprus, at Rio Tinto, in the Andes and the
   copperbelt; silver at Laurion and Potosi...), from the same file. Elsewhere the usual
   geology-based fields apply, scaled down (iron stays mostly geological).
+- **Lakes** come from a table of Earth's real lakes (the Great Lakes, Baikal, Victoria,
+  Tanganyika, Titicaca, Ladoga, the Aral as it was before irrigation...), each grown from
+  points along its length to its real area, at its real surface level, keeping near those
+  points and out of ground above its surface (so it keeps its real shape): the
+  elevation data records lake beds, not lake surfaces, so lakes can't be found from it. A
+  few gorges too narrow for the grid (the Danube's Iron Gates, the Yangtze's Three Gorges,
+  the Congo's cataracts, the St Lawrence) are cut back in, so the basins behind them drain
+  instead of filling into false seas. Both tables are in `worldgen/earth_data.py`.
 - Other widths are resampled from the stored 1600 x 800 grid; Enhance adds a little fine
   relief on top. The Plates layer shows a single plate.
 

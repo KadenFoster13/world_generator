@@ -58,14 +58,17 @@ def elevation_at(lat, lon):
 def earth_elevation(height, width):
     """Earth's elevation on a whole-globe grid of this size (m, float64): block means when
     the stored grid divides evenly, otherwise interpolated."""
+    from .generator import Grid
+
     z = _stored()
     h, w = z.shape
+    grid = Grid(height, width)
     if w % width == 0 and h % height == 0 and w // width == h // height:
         f = w // width
-        return z.reshape(height, f, width, f).mean(axis=(1, 3)).astype(np.float64)
-    from .generator import Grid
-    grid = Grid(height, width)
-    return elevation_at(grid.lat, grid.lon).astype(np.float64)
+        out = z.reshape(height, f, width, f).mean(axis=(1, 3)).astype(np.float64)
+    else:
+        out = elevation_at(grid.lat, grid.lon).astype(np.float64)
+    return carve_gorges(out, grid)
 
 
 def earth_env(raw, grid):
@@ -118,7 +121,105 @@ def region_elevation(grid):
     relief = np.abs(z - elevation_at(grid.lat + 0.2, grid.lon + 0.2))      # local roughness, m
     detail = fbm(Perlin3(EARTH_SEED * 7919 + 424242), grid.xyz, 400, 3)
     bump = detail * np.clip(0.4 * relief, 5, 300)
-    return np.where(land, np.maximum(z + bump, 1.0), z)
+    return carve_gorges(np.where(land, np.maximum(z + bump, 1.0), z), grid)
+
+
+def _cell(grid, lat, lon):
+    """The (row, col) of a point on a grid (whole globe or region), or None if outside."""
+    row = int(np.floor((grid.lat0 - lat) / grid.dpp))
+    dlon = lon - grid.lon0
+    if grid.wraps:
+        dlon %= 360.0
+    col = int(np.floor(dlon / grid.dpp))
+    h, w = grid.lat.shape
+    return (row, col) if 0 <= row < h and 0 <= col < w else None
+
+
+def carve_gorges(z, grid):
+    """Cut Earth's narrow gorges (earth_data.GORGES) into elevation `z` on `grid`: along
+    each river course, ground above the river's level is lowered to it, in a path of
+    cells joined edge to edge (so water can follow it)."""
+    from .earth_data import GORGES
+
+    z = np.array(z, dtype=np.float64)
+    for points in GORGES.values():
+        prev = None
+        for (la0, lo0, h0), (la1, lo1, h1) in zip(points[:-1], points[1:]):
+            n = max(2, int(np.ceil(max(abs(la1 - la0), abs(lo1 - lo0)) / (0.25 * grid.dpp))))
+            for t in np.linspace(0, 1, n):
+                cell = _cell(grid, la0 + t * (la1 - la0), lo0 + t * (lo1 - lo0))
+                if cell is None:
+                    prev = None
+                    continue
+                level = h0 + t * (h1 - h0)
+                if prev is not None and prev[0] != cell[0] and prev[1] != cell[1]:   # diagonal step
+                    z[prev[0], cell[1]] = min(z[prev[0], cell[1]], level)
+                z[cell] = min(z[cell], level)
+                prev = cell
+    return z
+
+
+def earth_lakes(grid, elevation_m, ocean):
+    """Earth's real lakes (earth_data.LAKES) on a grid. Each grows outward from the points
+    along its length until it covers its real area, taking next whichever neighbouring
+    land cell is nearest those points, counting ground above the lake's surface as
+    farther (each LAKE_RISE_M_PER_KM metres up as a km), so it fills its own basin and
+    keeps its real shape instead of running down a valley. Returns (lake mask, lake level
+    m (nan elsewhere), mask of lakes with no outlet)."""
+    import heapq
+
+    from .earth_data import LAKES
+
+    h, w = ocean.shape
+    area = (grid.km_per_px ** 2) * np.maximum(np.cos(np.radians(grid.lat)), 0.01)
+    lake = np.zeros(ocean.shape, bool)
+    level = np.full(ocean.shape, np.nan)
+    closed = np.zeros(ocean.shape, bool)
+    for name, axis, surface, area_km2, endorheic in LAKES:
+        starts = [c for c in (_cell(grid, la, lo) for la, lo in axis) if c is not None and not ocean[c]]
+        if not starts:
+            continue
+
+        def cost(r, c):
+            d = min(_segment_km(grid.lat[r, c], grid.lon[r, c], a, b) for a, b in zip(axis, axis[1:] or axis))
+            return d + max(float(elevation_m[r, c]) - surface, 0.0) / LAKE_RISE_M_PER_KM
+
+        heap = [(cost(*c), c) for c in starts]
+        heapq.heapify(heap)
+        seen, taken, covered = set(starts), [], 0.0
+        while heap and (covered < area_km2 or not taken):
+            _, (r, c) = heapq.heappop(heap)
+            taken.append((r, c))
+            covered += area[r, c]
+            for dr, dc in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                rr, cc = r + dr, c + dc
+                if grid.wraps:
+                    cc %= w
+                if 0 <= rr < h and 0 <= cc < w and (rr, cc) not in seen and not ocean[rr, cc]:
+                    seen.add((rr, cc))
+                    heapq.heappush(heap, (cost(rr, cc), (rr, cc)))
+        rows, cols = zip(*taken)
+        this = np.zeros(ocean.shape, bool)
+        this[rows, cols] = True
+        lake |= this
+        level[this] = surface
+        if endorheic:
+            closed |= this
+    return lake, level, closed
+
+
+LAKE_RISE_M_PER_KM = 2.0
+
+
+def _segment_km(lat, lon, a, b):
+    """Distance (km) from a point to the segment a-b (lat, lon pairs), on a local flat map."""
+    kx = 111.2 * np.cos(np.radians(lat))
+    ax, ay = (a[1] - lon + 540) % 360 - 180, a[0] - lat
+    bx, by = (b[1] - lon + 540) % 360 - 180, b[0] - lat
+    ax, bx, ay, by = ax * kx, bx * kx, ay * 111.2, by * 111.2
+    dx, dy = bx - ax, by - ay
+    t = 0.0 if dx == dy == 0 else min(max(-(ax * dx + ay * dy) / (dx * dx + dy * dy), 0.0), 1.0)
+    return float(np.hypot(ax + t * dx, ay + t * dy))
 
 
 CLIMATE_FILE = os.path.join(os.path.dirname(__file__), "data", "earth_climate.npz")

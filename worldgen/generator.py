@@ -1236,6 +1236,11 @@ def apply_climate(terrain: Terrain, cfg: WorldConfig) -> World:
     filled, receiver, order = hydrology.priority_flood(elevation_m, ocean)
     if cfg.lakes:
         lake, salt_flat, closed, lake_level = _find_lakes(elevation_m, filled, ocean, precip, temperature, cfg)
+        if is_earth(cfg):   # Earth: its real lakes (the elevation has beds, not surfaces)
+            from .earth import earth_lakes
+            lake, lake_level, real_closed = earth_lakes(grid, elevation_m, ocean)
+            salt_flat &= ~lake
+            closed = (closed & salt_flat) | real_closed
     else:
         lake = salt_flat = closed = np.zeros(ocean.shape, bool)
         lake_level = np.full(ocean.shape, np.nan)

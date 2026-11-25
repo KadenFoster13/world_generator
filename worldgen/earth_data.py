@@ -128,3 +128,53 @@ ORES = {
                   (25.0, 86.0, 300, 0.7),    # Bihar
                   (34.0, 109.0, 300, 0.5)],  # north China
 }
+
+
+# ------------------------------------------------------------------ lakes
+# Earth's elevation records lake beds, not lake surfaces, so the model can't tell lakes
+# from low ground. Each lake: points along its length (one for a round lake), its surface
+# (m), its area (km2; the Aral and Chad as they were before 20th-century irrigation and
+# drought), and whether it has no outlet (its rivers end there). Big enough to show on the map; the Caspian is kept as
+# an inland sea (it lies below sea level).
+LAKES = [
+    ("Superior", [(47.0, -91.5), (47.7, -88.5), (47.3, -85.0)], 183, 82100, False),
+    ("Michigan", [(45.8, -86.8), (43.5, -87.2), (41.8, -87.0)], 176, 58000, False),
+    ("Huron", [(45.9, -83.6), (44.5, -82.2), (43.3, -82.0)], 176, 59600, False),
+    ("Erie", [(42.0, -83.2), (42.3, -81.0), (42.7, -79.2)], 174, 25700, False),
+    ("Ontario", [(43.3, -79.6), (43.6, -77.5), (43.9, -76.4)], 75, 18960, False),
+    ("Winnipeg", [(50.6, -96.9), (52.5, -97.8), (53.7, -98.5)], 217, 24500, False),
+    ("Great Bear", [(66.0, -123.5), (66.0, -120.0)], 156, 31000, False),
+    ("Great Slave", [(61.3, -116.5), (61.7, -113.5), (62.5, -110.8)], 156, 27200, False),
+    ("Athabasca", [(58.6, -111.0), (59.3, -108.0)], 213, 7850, False),
+    ("Nicaragua", [(12.2, -86.0), (11.1, -85.0)], 32, 8264, False),
+    ("Titicaca", [(-15.4, -69.7), (-16.3, -69.0)], 3812, 8372, False),
+    ("Great Salt Lake", [(41.5, -112.6), (40.8, -112.3)], 1280, 4400, True),
+    ("Ladoga", [(61.6, 31.0), (60.6, 31.5)], 5, 17700, False),
+    ("Onega", [(62.6, 35.0), (61.2, 35.5)], 33, 9700, False),
+    ("Vanern", [(59.2, 12.7), (58.8, 14.0)], 44, 5650, False),
+    ("Baikal", [(55.7, 109.5), (53.5, 108.0), (51.6, 104.5)], 456, 31500, False),
+    ("Balkhash", [(46.3, 73.6), (46.6, 76.0), (46.6, 79.0)], 342, 16400, True),
+    ("Aral", [(46.5, 61.0), (44.5, 59.5), (43.7, 58.8)], 53, 68000, True),
+    ("Issyk-Kul", [(42.5, 76.3), (42.3, 78.0)], 1607, 6236, True),
+    ("Van", [(38.6, 42.9)], 1640, 3755, True),
+    ("Urmia", [(38.2, 45.4), (37.2, 45.6)], 1270, 5200, True),
+    ("Victoria", [(-1.0, 33.0)], 1134, 68800, False),
+    ("Tanganyika", [(-3.4, 29.3), (-6.0, 29.7), (-8.7, 31.0)], 773, 32600, False),
+    ("Malawi", [(-9.6, 34.0), (-12.0, 34.5), (-14.3, 35.2)], 474, 29600, False),
+    ("Turkana", [(4.5, 36.0), (2.6, 36.6)], 360, 6405, True),
+    ("Chad", [(13.0, 14.5)], 282, 20000, True),
+]
+
+# Gorges too narrow for the stored grid (a few km wide in ~25 km cells): without them the
+# basins behind them fill into great false lakes. Each: points along the river (lat, lon,
+# river level m), cut into the ground on every map size.
+GORGES = {
+    "Danube, Iron Gates": [(44.82, 20.45, 70), (44.75, 21.3, 66), (44.65, 22.0, 58), (44.62, 22.6, 45),
+                           (44.3, 23.0, 38), (43.9, 23.6, 28), (43.7, 24.5, 22)],
+    "Yangtze, Three Gorges": [(29.56, 106.55, 160), (29.7, 107.4, 140), (30.8, 108.4, 110), (31.0, 109.5, 90),
+                              (31.07, 109.9, 80), (31.04, 110.3, 70), (30.7, 111.3, 45), (30.33, 112.2, 30)],
+    "Congo, Livingstone Falls": [(-4.3, 15.3, 270), (-4.9, 14.4, 200), (-5.5, 13.8, 100), (-5.8, 13.45, 20),
+                                 (-5.85, 13.05, 5), (-6.0, 12.4, 0)],
+    "St Lawrence": [(44.2, -76.5, 74), (45.0, -74.7, 50), (45.5, -73.5, 10), (46.35, -72.5, 5),
+                    (46.8, -71.2, 2), (47.5, -70.0, 0)],
+}

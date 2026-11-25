@@ -257,6 +257,17 @@ class EarthTests(unittest.TestCase):
         for name in ("copper", "tin", "gold", "silver"):     # unlisted places stay modest
             self.assertLess(float(np.percentile(getattr(w, name)[~w.ocean], 95)), 0.5, name)
 
+    def test_lakes(self):
+        w = self.world
+        for name, (lat, lon) in {"Superior": (47.7, -87.5), "Baikal": (53.5, 108.0), "Victoria": (-1.0, 33.0),
+                                 "Tanganyika": (-6.0, 29.5), "Ladoga": (61.0, 31.5)}.items():
+            self.assertTrue(self.near(w.lake, lat, lon, 100), name)
+        for name, (lat, lon) in {"Pannonian basin": (46.5, 20.0), "Sichuan basin": (30.5, 105.5),
+                                 "Congo basin": (0.5, 19.0)}.items():
+            self.assertFalse(self.near(w.lake, lat, lon, 250), f"no lake in the {name}")
+        area = (w.grid.km_per_px ** 2) * np.cos(np.radians(w.grid.lat))
+        self.assertAlmostEqual(float(area[w.lake].sum()) / 1e3, 760, delta=150)   # thousand km2
+
     def test_region(self):
         region = generate_region(self.world, region_box(self.world, north=34, south=22, west=26, east=40))
         self.assertTrue(region.river.any())                              # the Nile
