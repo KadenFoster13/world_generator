@@ -105,22 +105,37 @@ class ClimateHistory:
     def _weight(self, k, year):
         return sum(a * np.sin(2 * np.pi * year / p + ph) for p, a, ph in self.cycles[k]) / 2
 
-    def at(self, year):
-        """The climate in simulation year `year`."""
-        g = self.global_temperature(year)
-        temp = g * self.polar_amplification
-        rain_log = np.zeros_like(temp) + 0.03 * g     # a warmer world is a little wetter
-        for k in range(PATTERNS):
-            temp = temp + 0.5 * self._weight(k, year) * self.temp_patterns[k]
-            rain_log = rain_log + 0.12 * self._weight(k + PATTERNS, year) * self.rain_patterns[k]
-        precip = np.exp(rain_log)
-        active = [d for d in self.droughts if d[0] <= year < d[1]]
-        for start, end, lat, lon, radius_km, severity in active:
+    def _drought_shape(self, lat, lon, radius_km):
+        """How strongly a drought centred at (lat, lon) reaches each cell (0..1); worked out
+        once per drought, as a drought's place and size don't change while it lasts."""
+        cache = self.__dict__.setdefault("_drought_shapes", {})
+        key = (lat, lon, radius_km)
+        if key not in cache:
+            if len(cache) > 64:
+                cache.clear()
             la, lo = np.radians(lat), np.radians(lon)
             centre = np.array([np.cos(la) * np.cos(lo), np.cos(la) * np.sin(lo), np.sin(la)])
             dist_km = np.linalg.norm(self._xyz - centre, axis=-1) * 6371.0
+            cache[key] = np.exp(-(dist_km / radius_km) ** 2)
+        return cache[key]
+
+    def at(self, year):
+        """The climate in simulation year `year`."""
+        g = self.global_temperature(year)
+        # The regional patterns, each rising and falling with its own cycles, summed in one
+        # weighted pass (a warmer world is also a little wetter).
+        if not hasattr(self, "_temp_stack"):
+            self._temp_stack = np.stack(self.temp_patterns).reshape(PATTERNS, -1)
+            self._rain_stack = np.stack(self.rain_patterns).reshape(PATTERNS, -1)
+        shape = self.polar_amplification.shape
+        wt = np.array([0.5 * self._weight(k, year) for k in range(PATTERNS)], np.float32)
+        wr = np.array([0.12 * self._weight(k + PATTERNS, year) for k in range(PATTERNS)], np.float32)
+        temp = g * self.polar_amplification + (wt @ self._temp_stack).reshape(shape)
+        precip = np.exp((wr @ self._rain_stack).reshape(shape) + np.float32(0.03 * g))
+        active = [d for d in self.droughts if d[0] <= year < d[1]]
+        for start, end, lat, lon, radius_km, severity in active:
             ramp = min(1.0, (year - start) / 15, (end - year) / 15)   # builds up and fades
-            precip = precip * (1 - severity * ramp * np.exp(-(dist_km / radius_km) ** 2))
+            precip = precip * (1 - severity * ramp * self._drought_shape(lat, lon, radius_km))
         return ClimateState(year=year, global_temperature_c=g, temperature_offset_c=temp.astype(np.float32),
                             precip_factor=precip.astype(np.float32), sea_level_m=sea_level_m(year),
                             droughts=active, volcanic=self.volcanic_cooling(year))

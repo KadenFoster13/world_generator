@@ -174,7 +174,9 @@ def load_or_generate(cfg, cache_dir="world_cache"):
     world = generate_world(cfg)
     os.makedirs(cache_dir, exist_ok=True)
     save_world_cache(world, path)
-    return world
+    # Return the saved copy, not the one just generated: the cache stores some fields at
+    # lower precision, and a world should be the same whether it was cached or not.
+    return load_world_cache(path)
 
 
 # ------------------------------------------------------------------ docs
