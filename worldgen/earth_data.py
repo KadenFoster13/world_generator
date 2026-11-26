@@ -54,9 +54,11 @@ HOMELANDS = {
 }
 
 # How far each species' wild range may spread from its homelands on Earth (km): where the
-# real range is smaller than the habitat model would allow.
+# real range is smaller than the habitat model would allow. (Wild emmer, einkorn and barley
+# grow within ~500-700 km of the Fertile Crescent: the Levant, SE Anatolia, the Zagros.
+# Rice was tamed on the Yangtze and reached mainland Southeast Asia only ~2500-2000 BCE.)
 REACH_KM = {
-    "temperate_grain": 1200, "cold_grain": 1500, "slow_grain": 700, "highland_tuber": 900,
+    "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 800, "slow_grain": 700, "highland_tuber": 900,
     "sheep_goat": 1800, "horse": 2500, "camel": 1800, "llama": 1400, "fowl": 1500,
 }
 

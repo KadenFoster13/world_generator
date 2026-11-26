@@ -149,9 +149,13 @@ def load_world_data(path):
 
 # ------------------------------------------------------------------ cache
 def save_world_cache(world, path):
-    """Snapshot the full World (floats stored as 32-bit to keep files small)."""
-    with gzip.open(path, "wb", compresslevel=1) as f:
+    """Snapshot the full World (floats stored as 32-bit to keep files small). Written to a
+    temporary file and renamed into place, so another process loading the same world at
+    the same time never reads a half-written file."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with gzip.open(tmp, "wb", compresslevel=1) as f:
         pickle.dump(world, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
 
 
 def load_world_cache(path):
