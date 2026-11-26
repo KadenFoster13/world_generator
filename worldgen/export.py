@@ -155,7 +155,13 @@ def save_world_cache(world, path):
     tmp = f"{path}.{os.getpid()}.tmp"
     with gzip.open(tmp, "wb", compresslevel=1) as f:
         pickle.dump(world, f, protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        # Windows: another process saved the same world first and has it open.
+        if not os.path.exists(path):
+            raise
+        os.remove(tmp)
 
 
 def load_world_cache(path):

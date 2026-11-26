@@ -16,14 +16,15 @@ resource publications for ore regions. Corrections welcome.
 
 # -------------------------------------------------------------- wild species
 HOMELANDS = {
-    # wild einkorn, emmer and barley: the Fertile Crescent
-    "temperate_grain": [(37.0, 40.0, 450), (34.0, 46.5, 350), (32.5, 36.0, 250)],
+    # wild einkorn, emmer and barley: the Fertile Crescent; foxtail and broomcorn millet: the
+    # middle Yellow River (a temperate dry-country grain like wheat, tamed there ~8000 BCE)
+    "temperate_grain": [(37.0, 40.0, 450), (34.0, 46.5, 350), (32.5, 36.0, 250), (35.0, 111.0, 400)],
     # rye and oats: Anatolia and the Caucasus, spreading north as weeds of wheat
     "cold_grain": [(39.5, 42.0, 450), (44.0, 40.0, 400)],
     # wild rice: the middle and lower Yangtze; the Ganges plain
     "wet_grain": [(30.0, 116.0, 400), (30.5, 112.0, 300), (25.5, 85.0, 400)],
-    # sorghum and pearl millet: the Sahel and Sudan; foxtail and broomcorn millet in north China
-    "tropical_grain": [(13.0, 30.0, 500), (14.0, -2.0, 600), (36.0, 111.0, 400)],
+    # sorghum and pearl millet: the Sahel and Sudan
+    "tropical_grain": [(13.0, 30.0, 500), (14.0, -2.0, 600)],
     # teosinte, maize's ancestor: the Balsas valley
     "slow_grain": [(18.3, -100.5, 250)],
     # lentils, peas, chickpeas (Fertile Crescent); soybean (north China); beans (Mesoamerica, Andes)
