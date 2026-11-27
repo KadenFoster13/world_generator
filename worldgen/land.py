@@ -90,13 +90,24 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
 
     # --- soil fertility
     fertility = _by_biome(biome, _FERTILITY)
-    silted = (river_flow > 300) & (slope < 5)              # big rivers spread silt on flat land
-    fertility = fertility + np.where(silted, 0.3 * np.clip(np.log10(np.maximum(river_flow, 1) / 300) / 2, 0, 1) + 0.1, 0)
+    # Cold, wet forests leach their soils (podzols: the Russian and Baltic forest, New
+    # England): a temperate forest's soil grows poorer below ~9 C, to boreal-like at 4 C.
+    cold_forest = np.isin(biome, [BIOME_ID["Temperate forest"], BIOME_ID["Temperate rainforest"]])
+    fertility = np.where(cold_forest, fertility - 0.35 * np.clip((9 - temperature) / 5, 0, 1), fertility)
     fertility = fertility + 0.25 * volcanic                # volcanic soils are rich
     fertility = fertility * np.clip(1 - slope / 80, 0.1, 1)
-    # Each flood lays down fresh silt, so a real floodplain's soil is rich whatever the
-    # climate around it (the Nile, Euphrates and Indus valleys run through desert).
-    fertility = np.maximum(fertility, ALLUVIAL_FERTILITY * np.clip(floodplain / 0.4, 0, 1))
+    # Each flood lays down fresh silt, so a floodplain's soil is rich whatever the climate
+    # around it. In a desert the floodplain is all the farmland there is (the Nile, the
+    # Euphrates, the Indus), so a valley cell's soil is the silt's. In a humid basin the
+    # uplands between the rivers are farmed too, on their own (often poor) soil, so silt
+    # counts for the share of the cell the river floods: about 0.2 x sqrt(discharge) km wide
+    # (~6 km for 1,000 m3/s, ~20 km for 10,000, ~60 km for the Amazon). In between, a blend.
+    full_silt = np.clip(floodplain / 0.4, 0, 1)
+    share_silt = np.where(floodplain > 0, np.clip(0.2 * np.sqrt(np.maximum(river_flow, 0)) / kpp, 0, 1), 0.0)
+    aridity = precip / (cfg.evaporation_per_degree_mm * np.maximum(temperature, 1.0))
+    arid = np.clip((1.0 - aridity) / 0.5, 0, 1)            # 1 at rain <= half of evaporation, 0 at >= all of it
+    silt = arid * full_silt + (1 - arid) * share_silt
+    fertility = fertility + np.clip(ALLUVIAL_FERTILITY - fertility, 0, None) * silt
     fertility = np.where(land & ~salt_flat & (temperature > -10), np.clip(fertility, 0, 1), 0.0)
     # Irrigable: land canals could water from a river or lake (gentle slopes near water;
     # canals reach a few tens of km, so it spreads a little on detailed maps).

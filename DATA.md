@@ -38,7 +38,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `river_dry_flow_south` | m3/s | dry-season flow of that river |
 | `river_slope_east` | m/km | how steeply that river falls (rapids above rapids_min_slope_m_per_km) |
 | `river_slope_south` | m/km | how steeply that river falls |
-| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a full floodplain's silt makes it 0.85 whatever the biome (1.6.2) |
+| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a floodplain's silt raises it toward 0.85: the whole cell in deserts, the flooded share in humid basins (1.6.5); cold temperate forest soils are leached (podzols: -0.35 at 4 C and below, 1.6.5) |
 | `arable` | 0..1 | suitability for farming (fertility, slope, growing season, water) |
 | `fresh_water` | 0..1 | access to fresh water (rivers, lakes, rainfall) |
 | `floodplain` | 0..1 | flat land a big river floods every year: farmable on the receding flood without rain or canals (1.4) |
@@ -62,8 +62,8 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `coal` | 0..1 | coal (lowland basins beside mountain belts) |
 | `oil` | 0..1 | oil (sedimentary basins and continental shelves; may be under shallow sea) |
 | `saltpeter` | 0..1 | natural saltpeter (hot deserts); needed for gunpowder |
-| `malaria` | 0..1 | malaria-type disease risk (hot, wet, low ground) |
-| `tsetse` | 0..1 | tsetse-fly zone, deadly to cattle and horses (hot woodland savanna) |
+| `malaria` | 0..1 | malaria-type disease risk (hot, wet, low ground; the deadly kind needs a mean year of 12-21 C and up, so Japan, Korea and the Po valley are mild, 1.6.5) |
+| `tsetse` | 0..1 | tsetse-fly zone, deadly to cattle and horses (hot woodland savanna; on Earth, Africa only, 1.6.5) |
 | `wind_east` | m/s | prevailing wind over the sea, toward the east (negative = toward the west) |
 | `wind_north` | m/s | prevailing wind over the sea, toward the north |
 | `current_east` | m/s | surface ocean current, toward the east |
@@ -113,15 +113,15 @@ Index into the first axis of `species_suitability` and `species_native`.
 | 1 | hardy grain (rye/oat-like) (`cold_grain`) | crop | food, fodder | 1.4 | 0.8 |
 | 2 | wetland grain (rice-like) (`wet_grain`) | crop | food | 1.2 | 1.2 |
 | 3 | dry grain (millet/sorghum-like) (`tropical_grain`) | crop | food, fodder | 1.1 | 0.8 |
-| 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 3.0 | 1.3 |
+| 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 2.0 | 1.3 |
 | 5 | pulses (bean/lentil-like) (`legume`) | crop | food | 1.0 | 0.7 |
 | 6 | highland tuber (potato-like) (`highland_tuber`) | crop | food | 1.3 | 1.1 |
-| 7 | tropical root crop (yam/taro-like) (`tropical_tuber`) | crop | food | 1.2 | 1.0 |
+| 7 | tropical root crop (yam/taro-like) (`tropical_tuber`) | crop | food | 1.5 | 1.0 |
 | 8 | fruit and oil trees (olive/date/banana-like) (`tree_crop`) | crop | food, oil | 1.5 | 0.6 |
 | 9 | fibre plant (flax/cotton-like) (`fibre`) | crop | fibre | 1.2 | 0.0 |
 | 10 | wild cattle (`cattle`) | animal | meat, milk, traction, leather | 1.5 | 1.0 |
 | 11 | wild sheep and goats (`sheep_goat`) | animal | meat, milk, wool | 1.0 | 0.8 |
-| 12 | wild pig (`pig`) | animal | meat | 1.0 | 0.9 |
+| 12 | wild pig (`pig`) | animal | meat | 1.5 | 0.9 |
 | 13 | wild horse (`horse`) | animal | riding, traction, war, milk | 2.0 | 0.5 |
 | 14 | wild camel (`camel`) | animal | pack, riding, milk, war | 2.0 | 0.4 |
 | 15 | wild highland camelid (llama-like) (`llama`) | animal | pack, wool, meat | 1.5 | 0.4 |

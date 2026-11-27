@@ -23,8 +23,8 @@ HOMELANDS = {
     "cold_grain": [(39.5, 42.0, 450), (44.0, 40.0, 400)],
     # wild rice: the middle and lower Yangtze; the Ganges plain
     "wet_grain": [(30.0, 116.0, 400), (30.5, 112.0, 300), (25.5, 85.0, 400)],
-    # sorghum and pearl millet: the Sahel and Sudan
-    "tropical_grain": [(13.0, 30.0, 500), (14.0, -2.0, 600)],
+    # sorghum and pearl millet: the Sahel and Sudan; browntop and little millet: the Deccan
+    "tropical_grain": [(13.0, 30.0, 500), (14.0, -2.0, 600), (16.0, 77.0, 400)],
     # teosinte, maize's ancestor: the Balsas valley
     "slow_grain": [(18.3, -100.5, 250)],
     # lentils, peas, chickpeas (Fertile Crescent); soybean (north China); beans (Mesoamerica, Andes)
@@ -57,9 +57,12 @@ HOMELANDS = {
 # How far each species' wild range may spread from its homelands on Earth (km): where the
 # real range is smaller than the habitat model would allow. (Wild emmer, einkorn and barley
 # grow within ~500-700 km of the Fertile Crescent: the Levant, SE Anatolia, the Zagros.
-# Rice was tamed on the Yangtze and reached mainland Southeast Asia only ~2500-2000 BCE.)
+# Rice was tamed on the Yangtze and reached mainland Southeast Asia only ~2500-2000 BCE.
+# Teosinte grows only in southern and central Mexico; wild lentils, peas, soybeans and
+# beans stay near their homelands: eastern North America had none to tame.)
 REACH_KM = {
-    "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 800, "slow_grain": 700, "highland_tuber": 900,
+    "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 800, "slow_grain": 400, "highland_tuber": 900,
+    "legume": 600,
     "sheep_goat": 1800, "horse": 2500, "camel": 1800, "llama": 1400, "fowl": 1500,
 }
 

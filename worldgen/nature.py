@@ -53,14 +53,14 @@ SPECIES = (
             elevation=(-100, 1500), needs_water=True, difficulty=1.2, chance=0.45, uses=("food",), food=1.2),
     Species("tropical_grain", "dry grain (millet/sorghum-like)", "crop", (18, 30), 5, (300, 1200), 4,
             difficulty=1.1, chance=0.55, uses=("food", "fodder"), food=0.8),
-    Species("slow_grain", "big grain, slow to tame (maize-like)", "crop", (14, 28), 6, (500, 1600), 4,
-            difficulty=3.0, chance=0.35, homelands=(1, 1), uses=("food", "fodder"), food=1.3),
+    Species("slow_grain", "big grain, slow to tame (maize-like)", "crop", (14, 28), 6, (500, 2500), 4,
+            difficulty=2.0, chance=0.35, homelands=(1, 1), uses=("food", "fodder"), food=1.3),
     Species("legume", "pulses (bean/lentil-like)", "crop", (6, 28), 6, (300, 1300), 3,
             difficulty=1.0, chance=0.65, uses=("food",), food=0.7),
     Species("highland_tuber", "highland tuber (potato-like)", "crop", (4, 14), 5, (400, 1200), 3,
             elevation=(1000, 4200), difficulty=1.3, chance=0.35, homelands=(1, 1), uses=("food",), food=1.1),
     Species("tropical_tuber", "tropical root crop (yam/taro-like)", "crop", (20, 30), 4, (1200, 3500), 6,
-            elevation=(-100, 1800), difficulty=1.2, chance=0.55, uses=("food",), food=1.0),
+            elevation=(-100, 1800), difficulty=1.5, chance=0.55, uses=("food",), food=1.0),
     Species("tree_crop", "fruit and oil trees (olive/date/banana-like)", "crop", (12, 30), 5, (200, 2500), 4,
             difficulty=1.5, chance=0.6, uses=("food", "oil"), food=0.6),
     Species("fibre", "fibre plant (flax/cotton-like)", "crop", (10, 30), 6, (400, 1600), 4,
@@ -74,7 +74,7 @@ SPECIES = (
             reach_km=2500, uses=("meat", "milk", "wool"), food=0.8),
     Species("pig", "wild pig", "animal", (2, 28), 6, (500, 2500), 0,
             biomes=("Temperate forest", "Tropical dry forest", "Tropical rainforest", "Wetland", "Savanna"),
-            difficulty=1.0, chance=0.6, reach_km=2500, uses=("meat",), food=0.9),
+            difficulty=1.5, chance=0.6, reach_km=2500, uses=("meat",), food=0.9),
     Species("horse", "wild horse", "animal", (-4, 18), 6, (200, 900), 0,
             biomes=("Grassland", "Scrubland", "Tundra", "Boreal forest"), difficulty=2.0, chance=0.3,
             homelands=(1, 1), reach_km=3000, uses=("riding", "traction", "war", "milk"), food=0.5),
@@ -359,7 +359,9 @@ def disease_fields(elevation_m, ocean, lake, temperature, precip, wetland, warme
     """Disease environments (0..1) on land."""
     land = ~ocean & ~lake
     low = 1 - smoothstep(1200, 2000, elevation_m)
-    malaria = (smoothstep(16, 24, warmest) * smoothstep(500, 1400, precip) * low
+    # The deadly kind needs warmth most of the year, not just a hot summer: Japan, Korea and
+    # the Po valley had mild (vivax) malaria; Bengal, the Congo and the Guinea coast the worst.
+    malaria = (smoothstep(16, 24, warmest) * smoothstep(12, 21, temperature) * smoothstep(500, 1400, precip) * low
                * (0.6 + 0.4 * np.clip(wetland * 2, 0, 1)))
     # Tsetse flies need hot, seasonally wet woodland-savanna (deadly to cattle and horses).
     tsetse = (smoothstep(22, 25, temperature) * smoothstep(600, 900, precip)
@@ -418,6 +420,12 @@ def add_cell_nature(world, env):
     for name, value in disease_fields(world.elevation_m, world.ocean, world.lake, world.temperature_c,
                                       world.precip_mm, world.wetland, world.warmest_month_c).items():
         setattr(world, name, value)
+    from .earth import is_earth
+    if is_earth(cfg):
+        # Tsetse flies are African: India's and Brazil's hot savannas have the climate but
+        # not the fly (zebu cattle there pull the plough).
+        africa = (grid.lat > -32) & (grid.lat < 18) & (grid.lon > -20) & (grid.lon < 52)
+        world.tsetse = np.where(africa, world.tsetse, 0.0).astype(np.float32)
 
 
 def add_global_nature(world):
