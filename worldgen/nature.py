@@ -50,7 +50,7 @@ SPECIES = (
     Species("cold_grain", "hardy grain (rye/oat-like)", "crop", (2, 12), 5, (300, 1000), 3,
             difficulty=1.4, chance=0.5, uses=("food", "fodder"), food=0.8),
     Species("wet_grain", "wetland grain (rice-like)", "crop", (18, 29), 4, (1000, 3000), 6,
-            elevation=(-100, 1500), needs_water=True, difficulty=1.2, chance=0.45, uses=("food",), food=1.2),
+            elevation=(-100, 1500), needs_water=True, difficulty=1.5, chance=0.45, uses=("food",), food=1.2),
     Species("tropical_grain", "dry grain (millet/sorghum-like)", "crop", (18, 30), 5, (300, 1200), 4,
             difficulty=1.1, chance=0.55, uses=("food", "fodder"), food=0.8),
     Species("slow_grain", "big grain, slow to tame (maize-like)", "crop", (14, 28), 6, (500, 2500), 4,

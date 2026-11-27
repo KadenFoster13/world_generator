@@ -1,8 +1,10 @@
-"""Earth (seed 0): where each wild species starts, and where the ores are.
+"""Earth (seed 0): where each wild species starts, where soils differ, and where the ores are.
 
 HOMELANDS  species key -> [(lat, lon, radius_km), ...]: the wild ancestor's core range or
            domestication centre. Ranges then spread from these through suitable habitat
            as on any world (nature.species_native), up to REACH_KM.
+SOILS      [(lat, lon, radius_km, fertility 0..1), ...]: soil regions the biome alone
+           misjudges (old shields, leached tropical uplands, black earths, loess, volcanic).
 ORES       mineral -> [(lat, lon, radius_km, richness 0..1), ...]: known ore regions,
            mostly those worked in antiquity or famous since. Elsewhere a damped copy of
            the generator's geology applies (iron stays mostly geological).
@@ -31,8 +33,9 @@ HOMELANDS = {
     "legume": [(37.0, 40.0, 450), (36.0, 116.0, 400), (19.0, -99.0, 350), (-12.0, -76.0, 300)],
     # wild potato: around Lake Titicaca and the central Andes
     "highland_tuber": [(-15.8, -69.5, 350), (-12.0, -75.0, 300)],
-    # yams (West Africa), taro and yams (New Guinea, Southeast Asia), cassava (southern Amazonia)
-    "tropical_tuber": [(7.5, 2.0, 500), (-5.5, 143.0, 450), (16.0, 102.0, 400), (-11.0, -60.0, 500)],
+    # yams (West Africa), taro and yams (New Guinea), cassava (southern Amazonia); mainland
+    # Southeast Asia farmed rice first (taro there came later, as a minor crop)
+    "tropical_tuber": [(7.5, 2.0, 500), (-5.5, 143.0, 450), (-11.0, -60.0, 500)],
     # olive and grape (Levant, Aegean), date palm (Gulf), banana (New Guinea), cacao (upper Amazon)
     "tree_crop": [(33.0, 35.5, 300), (38.0, 24.0, 300), (30.0, 47.5, 300), (-5.5, 143.0, 400),
                   (-3.0, -74.0, 350)],
@@ -61,10 +64,40 @@ HOMELANDS = {
 # Teosinte grows only in southern and central Mexico; wild lentils, peas, soybeans and
 # beans stay near their homelands: eastern North America had none to tame.)
 REACH_KM = {
-    "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 800, "slow_grain": 400, "highland_tuber": 900,
+    "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 600, "slow_grain": 400, "highland_tuber": 900,
     "legume": 600,
     "sheep_goat": 1800, "horse": 2500, "camel": 1800, "llama": 1400, "fowl": 1500,
 }
+
+# -------------------------------------------------------------------- soils
+# Earth's soils where they differ most from what the biome alone suggests: [(lat, lon,
+# radius_km, fertility 0..1)], blended in toward the centre (before river silt, which keeps
+# valleys and deltas rich). After the FAO-UNESCO Soil Map of the World and the USDA soil
+# orders: weathered oxisols and ultisols on old shields and tropical uplands are poor;
+# vertisols, mollisols, loess and young volcanic soils are rich.
+SOILS = [
+    # poor: leached tropical uplands and old shields
+    (17.5, 102.5, 550, 0.30),   # Indochina uplands and the Khorat plateau (sandy, leached)
+    (20.5, 97.0, 350, 0.35),    # Shan and Burmese hills
+    (1.0, 114.0, 650, 0.25),    # Borneo
+    (-13.0, -50.0, 1000, 0.30), # Brazilian shield and the Cerrado (oxisols)
+    (4.0, -60.0, 600, 0.25),    # Guiana shield
+    (-4.0, -63.0, 1300, 0.25),  # Amazon terra firme
+    (-10.0, 27.0, 1100, 0.35),  # miombo woodland belt
+    (0.0, 22.0, 900, 0.25),     # Congo basin
+    (8.0, -2.0, 700, 0.40),     # Guinea coast uplands
+    (55.0, -80.0, 1300, 0.20),  # Canadian shield
+    (63.0, 18.0, 650, 0.25),    # Fennoscandian shield
+    (32.5, -83.5, 600, 0.45),   # southeastern US coastal plain (ultisols)
+    # rich: black earths, loess, young volcanic soils
+    (19.0, 76.0, 550, 0.80),    # Deccan black cotton soils (vertisols on the traps)
+    (36.0, 112.0, 650, 0.85),   # loess plateau and North China plain
+    (26.5, 82.0, 650, 0.80),    # Indo-Gangetic alluvium
+    (9.0, 39.0, 450, 0.75),     # Ethiopian highlands (volcanic)
+    (19.3, -99.0, 400, 0.85),   # Trans-Mexican volcanic belt
+    (14.5, -90.5, 300, 0.80),   # Guatemalan and Salvadoran volcanic highlands
+    (-7.3, 110.0, 400, 0.85),   # Java (volcanic)
+]
 
 # -------------------------------------------------------------------- ores
 ORES = {

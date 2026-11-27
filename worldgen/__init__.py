@@ -28,7 +28,7 @@ from .hydrology import cell_river_flow, edge_properties, river_depth_m, river_wi
 from .nature import MINERALS, SPECIES, SPECIES_KEYS
 from .region import RegionBox, box_for_view, generate_region, region_box
 
-__version__ = "1.6.5"
+__version__ = "1.6.6"
 
 __all__ = [
     "DEFAULT", "RESOLUTIONS", "WorldConfig",

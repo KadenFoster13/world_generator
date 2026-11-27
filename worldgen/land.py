@@ -94,6 +94,13 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
     # England): a temperate forest's soil grows poorer below ~9 C, to boreal-like at 4 C.
     cold_forest = np.isin(biome, [BIOME_ID["Temperate forest"], BIOME_ID["Temperate rainforest"]])
     fertility = np.where(cold_forest, fertility - 0.35 * np.clip((9 - temperature) / 5, 0, 1), fertility)
+    from .earth import is_earth
+    if is_earth(cfg):   # Earth: its real soil regions (earth_data.SOILS)
+        from .earth import _disc
+        from .earth_data import SOILS
+        for lat, lon, radius_km, value in SOILS:
+            w = _disc(grid, lat, lon, radius_km)
+            fertility = fertility + (value - fertility) * w
     fertility = fertility + 0.25 * volcanic                # volcanic soils are rich
     fertility = fertility * np.clip(1 - slope / 80, 0.1, 1)
     # Each flood lays down fresh silt, so a floodplain's soil is rich whatever the climate

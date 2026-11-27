@@ -38,7 +38,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `river_dry_flow_south` | m3/s | dry-season flow of that river |
 | `river_slope_east` | m/km | how steeply that river falls (rapids above rapids_min_slope_m_per_km) |
 | `river_slope_south` | m/km | how steeply that river falls |
-| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a floodplain's silt raises it toward 0.85: the whole cell in deserts, the flooded share in humid basins (1.6.5); cold temperate forest soils are leached (podzols: -0.35 at 4 C and below, 1.6.5) |
+| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a floodplain's silt raises it toward 0.85: the whole cell in deserts, the flooded share in humid basins (1.6.5); cold temperate forest soils are leached (podzols: -0.35 at 4 C and below, 1.6.5); on Earth, real soil regions blend in (`earth_data.SOILS`: poor shields and tropical uplands, rich black earths, loess and volcanic soils, 1.6.6) |
 | `arable` | 0..1 | suitability for farming (fertility, slope, growing season, water) |
 | `fresh_water` | 0..1 | access to fresh water (rivers, lakes, rainfall) |
 | `floodplain` | 0..1 | flat land a big river floods every year: farmable on the receding flood without rain or canals (1.4) |
@@ -111,7 +111,7 @@ Index into the first axis of `species_suitability` and `species_native`.
 |---|---|---|---|---|---|
 | 0 | wild grain (wheat/barley-like) (`temperate_grain`) | crop | food, fodder | 1.0 | 1.0 |
 | 1 | hardy grain (rye/oat-like) (`cold_grain`) | crop | food, fodder | 1.4 | 0.8 |
-| 2 | wetland grain (rice-like) (`wet_grain`) | crop | food | 1.2 | 1.2 |
+| 2 | wetland grain (rice-like) (`wet_grain`) | crop | food | 1.5 | 1.2 |
 | 3 | dry grain (millet/sorghum-like) (`tropical_grain`) | crop | food, fodder | 1.1 | 0.8 |
 | 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 2.0 | 1.3 |
 | 5 | pulses (bean/lentil-like) (`legume`) | crop | food | 1.0 | 0.7 |
