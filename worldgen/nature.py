@@ -54,7 +54,7 @@ SPECIES = (
     Species("tropical_grain", "dry grain (millet/sorghum-like)", "crop", (18, 30), 5, (300, 1200), 4,
             difficulty=1.1, chance=0.55, uses=("food", "fodder"), food=0.8),
     Species("slow_grain", "big grain, slow to tame (maize-like)", "crop", (14, 28), 6, (500, 2500), 4,
-            difficulty=2.0, chance=0.35, homelands=(1, 1), uses=("food", "fodder"), food=1.3),
+            difficulty=2.0, chance=0.35, homelands=(1, 1), uses=("food", "fodder"), food=1.5),
     Species("legume", "pulses (bean/lentil-like)", "crop", (6, 28), 6, (300, 1300), 3,
             difficulty=1.0, chance=0.65, uses=("food",), food=0.7),
     Species("highland_tuber", "highland tuber (potato-like)", "crop", (4, 14), 5, (400, 1200), 3,

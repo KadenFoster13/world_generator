@@ -23,7 +23,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `rain_seasonality` | 0..1 | 0 = rain all year, 1 = all rain in one season |
 | `warm_months` | months | months warmer than 5 C |
 | `growing_months` | months | months both warm (>5 C) and wet (>40 mm) enough for crops without irrigation |
-| `biome` | index | index into metadata['biomes'] |
+| `biome` | index | index into metadata['biomes']; on Earth, the humid grasslands fire and grazing kept open (the prairie and the Pampas: `earth_data.GRASSLANDS`) are grassland, 1.6.9 |
 | `lake` | bool | lake surface |
 | `salt_flat` | bool | dry lake bed |
 | `lake_level_m` | m | water surface height where there's a lake (NaN elsewhere) |
@@ -113,7 +113,7 @@ Index into the first axis of `species_suitability` and `species_native`.
 | 1 | hardy grain (rye/oat-like) (`cold_grain`) | crop | food, fodder | 1.4 | 0.8 |
 | 2 | wetland grain (rice-like) (`wet_grain`) | crop | food | 1.5 | 1.2 |
 | 3 | dry grain (millet/sorghum-like) (`tropical_grain`) | crop | food, fodder | 1.1 | 0.8 |
-| 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 2.0 | 1.3 |
+| 4 | big grain, slow to tame (maize-like) (`slow_grain`) | crop | food, fodder | 2.0 | 1.5 |
 | 5 | pulses (bean/lentil-like) (`legume`) | crop | food | 1.0 | 0.7 |
 | 6 | highland tuber (potato-like) (`highland_tuber`) | crop | food | 1.3 | 1.1 |
 | 7 | tropical root crop (yam/taro-like) (`tropical_tuber`) | crop | food | 1.5 | 1.0 |
@@ -128,6 +128,7 @@ Index into the first axis of `species_suitability` and `species_native`.
 | 16 | wild fowl (chicken-like) (`fowl`) | animal | meat, eggs | 0.8 | 0.4 |
 
 Cattle and pigs live in temperate rainforest too (southern China, southern Japan), from 1.6.8.
+Maize-like grain feeds 1.5x a wheat-like one (1.3 before 1.6.9): far more grain per field and per seed sown.
 
 ## Climate over time
 

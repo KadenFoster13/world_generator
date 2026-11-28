@@ -1123,6 +1123,12 @@ def _climate(cfg, grid, elevation_m, ocean, wind=None):
         steppe = summer_warm & (precip < 450) & (seasons["warmest_month_c"] >= 16) & (temperature > -3)
         biome[summer_warm] = BIOME_ID["Boreal forest"]
         biome[steppe] = BIOME_ID["Grassland"]
+        # Humid grasslands the climate alone would make forest (the prairie, the Pampas).
+        from .earth import _disc
+        from .earth_data import GRASSLANDS
+        woods = np.isin(biome, [BIOME_ID[n] for n in ("Temperate forest", "Savanna", "Tropical dry forest")])
+        for g_lat, g_lon, radius_km in GRASSLANDS:
+            biome[woods & (_disc(grid, g_lat, g_lon, radius_km) > 0) & ~ocean] = BIOME_ID["Grassland"]
     # Mountain glaciers: snowy land whose warmest month stays around freezing
     # (also on high tropical peaks, like Kilimanjaro).
     glacier = (~ocean & (seasons["warmest_month_c"] + t_jitter < cfg.glacier_summer_max_c)

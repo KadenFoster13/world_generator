@@ -103,6 +103,17 @@ SOILS = [
     (37.0, 139.5, 400, 0.75),   # Kanto and southern Tohoku (volcanic ash)
 ]
 
+# Earth's humid grasslands, kept open by fire and grazing where the rain would grow forest
+# (the climate alone makes them temperate forest): [(lat, lon, radius_km), ...]. Within
+# the radius, forest and savanna become grassland.
+GRASSLANDS = [
+    (41.0, -94.0, 650),         # tallgrass prairie: Iowa, Illinois, Missouri, Kansas, Nebraska
+    (35.0, -98.0, 500),         # southern plains: Oklahoma, north Texas, the Cross Timbers
+    (30.5, -98.5, 300),         # Blackland prairie and the Edwards Plateau
+    (-34.5, -61.0, 500),        # the Pampas
+    (-32.5, -56.5, 300),        # Uruguay's campos
+]
+
 # -------------------------------------------------------------------- ores
 ORES = {
     "tin": [(50.3, -5.2, 120, 1.0),     # Cornwall
