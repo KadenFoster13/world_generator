@@ -63,10 +63,11 @@ HOMELANDS = {
 # Rice was tamed on the Yangtze and reached mainland Southeast Asia only ~2500-2000 BCE.
 # Maize's ancestor (Balsas teosinte) grows only in southwestern Mexico; wild lentils,
 # peas, soybeans and beans stay near their homelands: Texas and eastern North America
-# had none to tame.)
+# had none to tame. Wild manioc grows on the southern rim of the Amazon, not across the
+# continent; wild yams in West Africa's yam belt.)
 REACH_KM = {
     "temperate_grain": 700, "cold_grain": 1500, "wet_grain": 600, "slow_grain": 250, "highland_tuber": 900,
-    "legume": 400,
+    "legume": 400, "tropical_tuber": 700,
     "sheep_goat": 1800, "horse": 2500, "camel": 1800, "llama": 1400, "fowl": 1500,
 }
 
@@ -90,6 +91,8 @@ SOILS = [
     (55.0, -80.0, 1300, 0.20),  # Canadian shield
     (63.0, 18.0, 650, 0.25),    # Fennoscandian shield
     (32.5, -83.5, 600, 0.45),   # southeastern US coastal plain (ultisols)
+    (-8.0, -40.0, 650, 0.35),   # Brazil's caatinga (thin, stony soils on the crystalline shield)
+    (-23.5, -61.0, 550, 0.40),  # the Gran Chaco (droughty, salty plains)
     # rich: black earths, loess, young volcanic soils
     (19.0, 76.0, 550, 0.80),    # Deccan black cotton soils (vertisols on the traps)
     (36.0, 112.0, 650, 0.85),   # loess plateau and North China plain
@@ -98,6 +101,8 @@ SOILS = [
     (19.3, -99.0, 400, 0.85),   # Trans-Mexican volcanic belt
     (14.5, -90.5, 300, 0.80),   # Guatemalan and Salvadoran volcanic highlands
     (-7.3, 110.0, 400, 0.85),   # Java (volcanic)
+    (-13.0, -73.5, 650, 0.65),  # central Andean valleys (Cuzco, Mantaro, Ayacucho)
+    (-16.0, -69.0, 450, 0.60),  # the Titicaca basin
     (32.8, 130.8, 300, 0.75),   # Kyushu (volcanic ash and alluvium)
     (34.8, 135.0, 400, 0.75),   # Inland Sea, Kinai and the Nobi plain (alluvium)
     (37.0, 139.5, 400, 0.75),   # Kanto and southern Tohoku (volcanic ash)

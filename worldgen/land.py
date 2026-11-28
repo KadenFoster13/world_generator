@@ -15,6 +15,8 @@ _FERTILITY = {
     "Temperate rainforest": 0.5, "Tropical rainforest": 0.35, "Scrubland": 0.3,
     "Boreal forest": 0.3, "Tundra": 0.1, "Alpine": 0.1, "Desert": 0.08,
 }
+# Share of the way to poor (0.25) that hot, wet lowland soils are leached.
+TROPICAL_LEACHING = 0.6
 # Soil on a fully flooded floodplain (fresh silt every year), whatever the biome.
 ALLUVIAL_FERTILITY = 0.85
 # How much usable timber grows, by biome (0..1).
@@ -94,6 +96,13 @@ def land_fields(cfg, grid, elevation_m, ocean, lake, salt_flat, biome, temperatu
     # England): a temperate forest's soil grows poorer below ~9 C, to boreal-like at 4 C.
     cold_forest = np.isin(biome, [BIOME_ID["Temperate forest"], BIOME_ID["Temperate rainforest"]])
     fertility = np.where(cold_forest, fertility - 0.35 * np.clip((9 - temperature) / 5, 0, 1), fertility)
+    # Hot, wet lowlands leach theirs: heavy rain through warm soil for ages washes out the
+    # nutrients (the red and yellow oxisols and ultisols of Brazil, Paraguay, south China and
+    # Southeast Asia), so swidden fields wear out in a few years. Toward 0.25 from 18-24 C and
+    # 900-1,500 mm a year; young volcanic soil and river silt (below) renew it.
+    leach = (np.clip((temperature - 18) / 6, 0, 1) * np.clip((precip - 900) / 600, 0, 1)
+             * ~np.isin(biome, [BIOME_ID["Alpine"], BIOME_ID["Desert"]]))
+    fertility = fertility - TROPICAL_LEACHING * np.clip(fertility - 0.25, 0, None) * leach
     from .earth import is_earth
     if is_earth(cfg):   # Earth: its real soil regions (earth_data.SOILS)
         from .earth import _disc
