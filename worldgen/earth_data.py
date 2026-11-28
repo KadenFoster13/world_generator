@@ -98,6 +98,9 @@ SOILS = [
     (19.3, -99.0, 400, 0.85),   # Trans-Mexican volcanic belt
     (14.5, -90.5, 300, 0.80),   # Guatemalan and Salvadoran volcanic highlands
     (-7.3, 110.0, 400, 0.85),   # Java (volcanic)
+    (32.8, 130.8, 300, 0.75),   # Kyushu (volcanic ash and alluvium)
+    (34.8, 135.0, 400, 0.75),   # Inland Sea, Kinai and the Nobi plain (alluvium)
+    (37.0, 139.5, 400, 0.75),   # Kanto and southern Tohoku (volcanic ash)
 ]
 
 # -------------------------------------------------------------------- ores

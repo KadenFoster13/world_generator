@@ -38,7 +38,7 @@ west to east starting at 180W), available as `world.<name>` and in files written
 | `river_dry_flow_south` | m3/s | dry-season flow of that river |
 | `river_slope_east` | m/km | how steeply that river falls (rapids above rapids_min_slope_m_per_km) |
 | `river_slope_south` | m/km | how steeply that river falls |
-| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a floodplain's silt raises it toward 0.85: the whole cell in deserts, the flooded share in humid basins (1.6.5); cold temperate forest soils are leached (podzols: -0.35 at 4 C and below, 1.6.5); on Earth, real soil regions blend in (`earth_data.SOILS`: poor shields and tropical uplands, rich black earths, loess and volcanic soils, 1.6.6) |
+| `soil_fertility` | 0..1 | natural soil quality (biome, floodplains, volcanic soil, slope); a floodplain's silt raises it toward 0.85: the whole cell in deserts, the flooded share in humid basins (1.6.5); cold temperate forest soils are leached (podzols: -0.35 at 4 C and below, 1.6.5); on Earth, real soil regions blend in (`earth_data.SOILS`: poor shields and tropical uplands, rich black earths, loess and volcanic soils, 1.6.6; Japan's volcanic ash and alluvium, 1.6.8) |
 | `arable` | 0..1 | suitability for farming (fertility, slope, growing season, water) |
 | `fresh_water` | 0..1 | access to fresh water (rivers, lakes, rainfall) |
 | `floodplain` | 0..1 | flat land a big river floods every year: farmable on the receding flood without rain or canals (1.4) |
@@ -126,6 +126,8 @@ Index into the first axis of `species_suitability` and `species_native`.
 | 14 | wild camel (`camel`) | animal | pack, riding, milk, war | 2.0 | 0.4 |
 | 15 | wild highland camelid (llama-like) (`llama`) | animal | pack, wool, meat | 1.5 | 0.4 |
 | 16 | wild fowl (chicken-like) (`fowl`) | animal | meat, eggs | 0.8 | 0.4 |
+
+Cattle and pigs live in temperate rainforest too (southern China, southern Japan), from 1.6.8.
 
 ## Climate over time
 
